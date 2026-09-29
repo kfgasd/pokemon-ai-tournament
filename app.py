@@ -18,7 +18,7 @@ from collections import Counter
 # Read-only, best-effort import of the tournament engine itself - ONLY for its exact stat-calculation/ability/nature
 # resolution (Trainer Database's "Actual Stats" section - see get_actual_mon further down). This is the one piece
 # this dashboard can't safely reimplement on its own: a trainer's real nature/ability/IVs aren't just defaults,
-# they're derived by a retail-accurate NPC "personality value" algorithm (see assign_trainer_personalities in
+# they're derived by a accurate NPC "personality value" algorithm (see assign_trainer_personalities in
 # pokemon_ai_tournament.py) that depends on internal trainer-ID/species-ID/class-index tables this file has no
 # business duplicating - getting that wrong would show a confidently-wrong ability/nature, worse than not showing
 # one at all. This NEVER modifies pokemon_ai_tournament.py or writes anything - pure read access to its already-
@@ -27,6 +27,7 @@ from collections import Counter
 # this server's startup - the same cost every other script in this project that touches it already pays), and if
 # the file isn't even present (a deployment that only ships app.py + tournament_data/ + sprites/, not the multi-GB
 # decompiled source tree), this degrades to `eng = None` and every feature that needs it just quietly doesn't show.
+
 try:
     import pokemon_ai_tournament as eng
 except Exception:
