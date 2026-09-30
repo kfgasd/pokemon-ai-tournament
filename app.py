@@ -415,16 +415,20 @@ def get_available_logs(target_dir):
     available_files = set()
     if os.path.exists(target_dir):
         available_files.update(os.listdir(target_dir))
-        
-    for i in range(1, 21):
-        zip_path = f"{target_dir}_part{i}.zip"
-        if os.path.exists(zip_path):
-            try:
-                with zipfile.ZipFile(zip_path, 'r') as z:
-                    available_files.update([os.path.basename(f) for f in z.namelist()])
-            except zipfile.BadZipFile:
-                pass
-                
+
+    # Walk part numbers until one is missing, rather than a fixed count - a hardcoded range(1, 21) silently stopped
+    # indexing any dataset with more than 20 parts (all 3 Combined combos have 33-36, since Combined's ~1,380-trainer
+    # roster produces far more matchups/logs per combo than Platinum or HGSS alone), so any log living in part 21+
+    # was invisible here even though the zip itself was right there on disk.
+    i = 1
+    while os.path.exists(f"{target_dir}_part{i}.zip"):
+        try:
+            with zipfile.ZipFile(f"{target_dir}_part{i}.zip", 'r') as z:
+                available_files.update([os.path.basename(f) for f in z.namelist()])
+        except zipfile.BadZipFile:
+            pass
+        i += 1
+
     return available_files
 
 available_logs = get_available_logs(results_dir)
@@ -1114,21 +1118,23 @@ with tab_logs:
                     with open(raw_path, 'r', encoding='utf-8') as f:
                         log_content = f.read()
                 else:
-                    for i in range(1, 21):
+                    # Same "walk until missing" fix as get_available_logs() above - see its own comment.
+                    i = 1
+                    while os.path.exists(f"{results_dir}_part{i}.zip"):
                         zip_path = f"{results_dir}_part{i}.zip"
-                        if os.path.exists(zip_path):
-                            with zipfile.ZipFile(zip_path, 'r') as z:
-                                zip_files = z.namelist()
-                                path_with_dir = f"{results_dir}/{target_filename}"
-                                actual_zip_path = path_with_dir if path_with_dir in zip_files else (target_filename if target_filename in zip_files else None)
-                                
-                                if actual_zip_path:
-                                    with z.open(actual_zip_path) as f:
-                                        log_content = f.read().decode('utf-8')
-                                    break 
-                        if log_content: 
-                            break 
-                            
+                        with zipfile.ZipFile(zip_path, 'r') as z:
+                            zip_files = z.namelist()
+                            path_with_dir = f"{results_dir}/{target_filename}"
+                            actual_zip_path = path_with_dir if path_with_dir in zip_files else (target_filename if target_filename in zip_files else None)
+
+                            if actual_zip_path:
+                                with z.open(actual_zip_path) as f:
+                                    log_content = f.read().decode('utf-8')
+                                break
+                        if log_content:
+                            break
+                        i += 1
+
             if log_content:
                 safe_text = html.escape(log_content, quote=False)
                 safe_text = re.sub(r'^[ ]{2,4}', '&nbsp;&nbsp;&nbsp;&nbsp;', safe_text, flags=re.MULTILINE)
