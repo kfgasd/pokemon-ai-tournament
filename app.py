@@ -40,7 +40,13 @@ def safe_filename(name):
     "_game{n}.txt"), collapsing any run of non-alphanumeric characters to a single underscore and trimming the ends. A plain
     `.replace(" ", "_")` (this page's previous approach) leaves periods, parentheses and ampersands untouched, so it silently
     failed to find any log for a trainer whose display name has one - "Rival Silver Feraligatr (Goldenrod)", "Leader Lt. Surge
-    Rematch", "Bug Catcher Jack & Lass Briana" and, in HGSS/Combined datasets, roughly 1 in 7 trainers overall."""
+    Rematch", "Bug Catcher Jack & Lass Briana" and, in HGSS/Combined datasets, roughly 1 in 7 trainers overall.
+
+    Reverses the "(DD)" -> "(Dragon's Den)" readability expansion this page applies to df['Display_Name'] (see that
+    assignment's own comment) before collapsing - the actual log filenames were generated from the RAW "(DD)" form,
+    since that expansion is a display-only affordance added long after those tournaments ran. Without this, every
+    Leader Clair & Champion Lance (Dragon's Den) log (Combined and HGSS alike) would silently fail to be found."""
+    name = name.replace("(Dragon's Den)", "(DD)")
     return re.sub(r"[^A-Za-z0-9]+", "_", name).strip("_")
 
 # Set browser tab title and layout
