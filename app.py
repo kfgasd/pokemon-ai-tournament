@@ -826,8 +826,15 @@ def resolve_trainer_sprite_path(t_key_raw, t_class_raw, display_name, game_title
 
         t_class_flat = t_class_raw.replace('_', '')
 
+        # Whole-token match, not substring: a raw `key in clean_key` matched "red" against the middle of "alfred" and
+        # "jared" (both trainer_keys - "gentleman_alfred", "psychic_jared" - happen to contain that substring), handing
+        # them Pokemon Trainer Red's sprite. clean_key's own underscore segments are its real name components, so a
+        # special-map key only counts as a match when it IS one of those segments outright - "rival_" (trailing
+        # underscore, matching every "rival_silver_<location>" variant) still works the same either way, since 'rival'
+        # is always one of those segments too.
+        clean_key_tokens = clean_key.split('_')
         for key, val in special_hgss_map.items():
-            if not trainer_path and (key in clean_key):
+            if not trainer_path and (key.rstrip('_') in clean_key_tokens):
                 for f in hgss_files:
                     if val == clean_hgss_filename(f):
                         trainer_path = os.path.join(HGSS_ASSETS_DIR, f)
@@ -886,9 +893,17 @@ def build_trainer_card(row, game_title, valid_pt_folders, hgss_files, rank_idx=N
         # display name aren't available here - only their trainer keys are, which resolve_trainer_sprite_path can already
         # work from alone for these three pairs (member_names is a rough split of the merged display name, e.g. "Commander
         # Jupiter" / "Mars (Spear Pillar)" - good enough for its low-priority gender-suffix fallback).
+        #
+        # In a Combined dataset, game_title is "Combined", not "HGSS" - but resolve_trainer_sprite_path's HGSS/Platinum
+        # branch only checks game_title=="HGSS" OR the passed-in key starting with "hgss_", and these individual member
+        # keys never carry that prefix (only the merged duo key does, e.g. "hgss_leader_clair_clair_dd_and_..."). Without
+        # this, an HGSS-origin duo's members silently fell into the Platinum branch and got difflib's closest-string
+        # fuzzy match instead - "leader_clair_clair_dd" ~ "leader_roark", "champion_lance_dd" ~ "champion_cynthia" (the
+        # only Platinum leader/champion folders that loosely resemble them) - real trainers, just the wrong ones.
+        member_game_title = "HGSS" if t_key_raw.startswith("hgss_") else game_title
         member_names = display_name.split(" & ", 1) if " & " in display_name else ["", ""]
         sprite_paths = [
-            resolve_trainer_sprite_path(member_key, "", member_names[i] if i < len(member_names) else "", game_title, valid_pt_folders, hgss_files)
+            resolve_trainer_sprite_path(member_key, "", member_names[i] if i < len(member_names) else "", member_game_title, valid_pt_folders, hgss_files)
             for i, member_key in enumerate(duo_members)
         ]
         trainer_sprite = "".join(get_sprite_html(p, "Sprite Missing", is_trainer=True, size=50) for p in sprite_paths)
