@@ -480,8 +480,7 @@ tab_logs, tab_leaderboard, tab_analytics, tab_tierlist, tab_trainerdb, tab_curve
 # ASSET DIRECTORIES & CACHED IMAGE HELPERS
 # ==========================================
 # Deployment layout: only res/pokemon/*/data.json is shipped here (2.6MB, powers Species Data's Base Stats/
-# Abilities), not the full decompiled source tree - res/items/icons/... still degrades gracefully to its text
-# fallback (get_sprite_html), same as before this sync.
+# Abilities), not the full decompiled source tree.
 REPO_ASSETS_DIR = ""
 HGSS_ASSETS_DIR = "sprites/hgss"
 # Trainer CLASS sprite folders specifically (one subfolder per class, each holding front.png etc) - this deployment
@@ -491,6 +490,8 @@ TRAINER_SPRITE_DIR = "sprites/platinum"
 # Species icons specifically (one subfolder per species, each holding just icon.png - not the rest of res/pokemon/)
 # - split out from REPO_ASSETS_DIR the same way TRAINER_SPRITE_DIR is, so this deployment can supply just this piece.
 POKEMON_ICON_DIR = "sprites/pokemon_icon"
+# Held-item icons - same split-out-flat-folder approach as POKEMON_ICON_DIR/TRAINER_SPRITE_DIR.
+ITEM_ICON_DIR = "sprites/items"
 
 @st.cache_data
 def get_valid_trainer_folders(classes_dir):
@@ -934,7 +935,7 @@ def build_trainer_card(row, game_title, valid_pt_folders, hgss_files, rank_idx=N
             item_html = ""
             if item_name:
                 safe_item = item_name.strip().lower().replace(" ", "_").replace(".", "").replace("'", "")
-                item_path = os.path.join(REPO_ASSETS_DIR, 'res', 'items', 'icons', f"{safe_item}.png")
+                item_path = os.path.join(ITEM_ICON_DIR, f"{safe_item}.png")
                 item_html = get_sprite_html(item_path, item_name, is_item=True)
 
             moves_html = ""
