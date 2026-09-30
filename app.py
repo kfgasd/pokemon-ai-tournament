@@ -470,14 +470,17 @@ tab_logs, tab_leaderboard, tab_analytics, tab_tierlist, tab_trainerdb, tab_curve
 # ASSET DIRECTORIES & CACHED IMAGE HELPERS
 # ==========================================
 # Deployment layout: only res/pokemon/*/data.json is shipped here (2.6MB, powers Species Data's Base Stats/
-# Abilities), not the full decompiled source tree - res/pokemon/.../icon.png and res/items/icons/... still degrade
-# gracefully to their text fallback (get_sprite_html), same as before this sync.
+# Abilities), not the full decompiled source tree - res/items/icons/... still degrades gracefully to its text
+# fallback (get_sprite_html), same as before this sync.
 REPO_ASSETS_DIR = ""
 HGSS_ASSETS_DIR = "sprites/hgss"
 # Trainer CLASS sprite folders specifically (one subfolder per class, each holding front.png etc) - this deployment
 # supplies just this piece as its own flat folder, mirroring res/trainers/classes' own structure, without needing
 # the whole res/ tree alongside it.
 TRAINER_SPRITE_DIR = "sprites/platinum"
+# Species icons specifically (one subfolder per species, each holding just icon.png - not the rest of res/pokemon/)
+# - split out from REPO_ASSETS_DIR the same way TRAINER_SPRITE_DIR is, so this deployment can supply just this piece.
+POKEMON_ICON_DIR = "sprites/pokemon_icon"
 
 @st.cache_data
 def get_valid_trainer_folders(classes_dir):
@@ -562,64 +565,127 @@ def get_species_static_info(species_display_name):
     return {"base_stats": data.get('base_stats') or {}, "abilities": abilities, "types": types}
 
 
-@st.cache_resource
-def get_hgss_roster():
-    """pokemon_ai_tournament.py's own built HGSS roster (trainer_key -> {"party": [built mon dicts], ...}), loaded
-    once per server and reused - eng.load_hgss_trainers_from_repo() re-parses trainers.json and re-derives every
-    mon's personality/nature/ability from scratch, not something to repeat on every Streamlit rerun. {} if `eng`
-    itself never imported, or the HGSS decompiled source isn't present."""
-    if eng is None:
+@st.cache_data
+def load_actual_mon_data():
+    """Precomputed nature/ability/IVs for every Platinum and HGSS trainer's party (trainer_key -> [{"species",
+    "ability", "nature", "ivs"}, ...], see export_actual_mon_data.py) - level-independent, since the personality
+    hash that derives these is seeded from each trainer file's own canonical level, never a tournament's SET_LEVEL
+    override, so one export covers every level-cap dataset. {} if actual_mon_data.json isn't shipped."""
+    path = dp("actual_mon_data.json")
+    if not os.path.exists(path):
         return {}
     try:
-        db, _ = eng.load_hgss_trainers_from_repo()
-        return db
+        with open(path, "r", encoding="utf-8") as f:
+            return json.load(f)
     except Exception:
         return {}
 
 
-@st.cache_resource
 def load_roster_for_game(game_mode):
-    """The built roster dict for one of "platinum" / "hgss" / "combined" - same key namespace as that exact
+    """The precomputed party data for one of "platinum" / "hgss" / "combined" - same key namespace as that exact
     dataset's own Trainer_Key column (Combined prefixes every HGSS-origin key with "hgss_", matching
-    pokemon_ai_tournament.py's own __main__ combining logic). {} if `eng` never imported."""
-    if eng is None:
-        return {}
+    pokemon_ai_tournament.py's own combining logic). {} if actual_mon_data.json isn't shipped."""
+    data = load_actual_mon_data()
     if game_mode == "platinum":
-        return eng.TRAINERS_DB
+        return data.get("platinum", {})
     if game_mode == "hgss":
-        return get_hgss_roster()
-    combined = dict(eng.TRAINERS_DB)
-    for key, data in get_hgss_roster().items():
-        combined[f"hgss_{key}"] = data
+        return data.get("hgss", {})
+    combined = dict(data.get("platinum", {}))
+    for key, party in data.get("hgss", {}).items():
+        combined[f"hgss_{key}"] = party
     return combined
 
 
-def get_actual_mon(trainer_key, species_display_name, game_mode):
-    """The exact built party-mon dict pokemon_ai_tournament.py used for this trainer's `species_display_name" - real
-    calculated stats (atk/def/spa/spd/speed/max_hp), resolved ability and nature, not a base-stat estimate. None if
-    `eng` never imported, the trainer isn't in the loaded roster (a duo not covered by DUO_TRAINER_MEMBERS, or a
+# Standard Gen 3+ stat formula and nature table - unlike nature/ability/IVs themselves (which need the retail
+# trainer-ID/species-ID "personality value" hash - see export_actual_mon_data.py, which precomputes those once
+# locally against the decompiled source and ships the result as actual_mon_data.json), turning base stats + IVs +
+# nature into an actual stat VALUE at a given level needs no secret tables, so it's safe to compute right here.
+NATURE_STAT_TABLE = {
+    "LONELY": ("atk", "def"), "BRAVE": ("atk", "spe"), "ADAMANT": ("atk", "spa"), "NAUGHTY": ("atk", "spd"),
+    "BOLD": ("def", "atk"), "RELAXED": ("def", "spe"), "IMPISH": ("def", "spa"), "LAX": ("def", "spd"),
+    "TIMID": ("spe", "atk"), "HASTY": ("spe", "def"), "JOLLY": ("spe", "spa"), "NAIVE": ("spe", "spd"),
+    "MODEST": ("spa", "atk"), "MILD": ("spa", "def"), "QUIET": ("spa", "spe"), "RASH": ("spa", "spd"),
+    "CALM": ("spd", "atk"), "GENTLE": ("spd", "def"), "SASSY": ("spd", "spe"), "CAREFUL": ("spd", "spa"),
+}
+
+
+def nature_stat_multiplier(nature_name, stat):
+    if not nature_name:
+        return 1.0
+    up, down = NATURE_STAT_TABLE.get(nature_name.replace("NATURE_", "").upper(), (None, None))
+    if stat == up:
+        return 1.1
+    if stat == down:
+        return 0.9
+    return 1.0
+
+
+def calc_actual_stat(base, iv, level, is_hp=False, nature_mult=1.0):
+    core = (2 * base + iv) * level // 100
+    return core + level + 10 if is_hp else int((core + 5) * nature_mult)
+
+
+def get_mon_level_from_team_str(team_str, species_upper):
+    """This species' own level, exactly as tournament-generated for the CURRENTLY selected dataset - Team_and_Movesets
+    is always authoritative for level (ivs/nature come from actual_mon_data.json instead, since those don't vary by
+    level-cap), same per-mon parsing convention as get_trainer_species_moveset."""
+    if not isinstance(team_str, str):
+        return None
+    for mon_data in team_str.split(' | '):
+        base_mon_name = re.sub(r'\[.*?\]', '', mon_data.split(' Lv')[0].strip()).strip()
+        mon_name = (base_mon_name.split('@')[0] if '@' in base_mon_name else base_mon_name).strip()
+        if mon_name.upper() != species_upper:
+            continue
+        m = re.search(r'Lv\s*(\d+)', mon_data)
+        return int(m.group(1)) if m else None
+    return None
+
+
+def get_actual_mon(trainer_key, species_display_name, game_mode, team_str):
+    """This species' resolved ability/nature/IVs (from actual_mon_data.json) plus its real calculated stats at the
+    level it's actually fielded at in `team_str` (that dataset row's own Team_and_Movesets). None if
+    actual_mon_data.json isn't shipped, the trainer isn't in it (a duo not covered by DUO_TRAINER_MEMBERS, or a
     trainer_key naming mismatch), or this species isn't actually on that trainer's team."""
     roster = load_roster_for_game(game_mode)
     if not roster:
         return None
-    entry = roster.get(trainer_key)
-    if entry is not None:
-        party = entry.get("party", [])
-    else:
-        # A duo's merged key never exists as its own roster entry - its combined party is built dynamically at
-        # tournament-setup time from its two individual members instead (see DUO_TRAINER_MEMBERS, defined further
-        # down this file but already in scope by the time this is ever called). An HGSS member of a Combined-context
-        # duo needs the "hgss_" prefix this roster's own combining step gave it; a Platinum or HGSS-only-dataset
-        # member doesn't, so both spellings are tried.
+    party = roster.get(trainer_key)
+    if party is None:
+        # A duo's merged key never exists as its own roster entry - its combined party is the concatenation of its
+        # two individual members' own entries instead (see DUO_TRAINER_MEMBERS, defined further down this file but
+        # already in scope by the time this is ever called). An HGSS member of a Combined-context duo needs the
+        # "hgss_" prefix this roster's own combining step gave it; a Platinum or HGSS-only-dataset member doesn't,
+        # so both spellings are tried.
         party = []
         for member_key in DUO_TRAINER_MEMBERS.get(trainer_key, ()):
-            member = roster.get(member_key) or roster.get(f"hgss_{member_key}") or {}
-            party.extend(member.get("party", []))
+            party.extend(roster.get(member_key) or roster.get(f"hgss_{member_key}") or [])
     species_key = species_display_name.strip().upper().replace(" ", "_").replace("'", "").replace(".", "")
-    for mon in party:
-        if (mon.get("species") or "").replace("SPECIES_", "") == species_key:
-            return mon
-    return None
+    mon = next((m for m in party if (m.get("species") or "").replace("SPECIES_", "") == species_key), None)
+    if mon is None:
+        return None
+    level = get_mon_level_from_team_str(team_str, species_key.replace("_", " "))
+    static_info = get_species_static_info(species_display_name)
+    base_stats = (static_info or {}).get("base_stats") or {}
+    if level is None or not base_stats:
+        return None
+    nature = mon.get("nature")
+    ivs = mon.get("ivs") or {}
+    return {
+        "level": level,
+        "max_hp": calc_actual_stat(base_stats.get("hp", 0), ivs.get("hp", 31), level, is_hp=True),
+        "atk": calc_actual_stat(base_stats.get("attack", 0), ivs.get("atk", 31), level,
+                                 nature_mult=nature_stat_multiplier(nature, "atk")),
+        "def": calc_actual_stat(base_stats.get("defense", 0), ivs.get("def", 31), level,
+                                 nature_mult=nature_stat_multiplier(nature, "def")),
+        "spa": calc_actual_stat(base_stats.get("special_attack", 0), ivs.get("spa", 31), level,
+                                 nature_mult=nature_stat_multiplier(nature, "spa")),
+        "spd": calc_actual_stat(base_stats.get("special_defense", 0), ivs.get("spd", 31), level,
+                                 nature_mult=nature_stat_multiplier(nature, "spd")),
+        "speed": calc_actual_stat(base_stats.get("speed", 0), ivs.get("spe", 31), level,
+                                   nature_mult=nature_stat_multiplier(nature, "spe")),
+        "ability": mon.get("ability"),
+        "nature": nature,
+    }
 
 
 # Dynamic JSON parsing for Move Typing
@@ -847,11 +913,11 @@ def build_trainer_card(row, game_title, valid_pt_folders, hgss_files, rank_idx=N
             ability_text = ability_match.group(1) if ability_match else None
 
             safe_mon = mon_name.lower().replace(' ', '_').replace('.', '').replace('-', '_').replace("'", "")
-            mon_path = os.path.join(REPO_ASSETS_DIR, 'res', 'pokemon', safe_mon, 'icon.png')
+            mon_path = os.path.join(POKEMON_ICON_DIR, safe_mon, 'icon.png')
             
             if not os.path.exists(mon_path) and '_' in safe_mon:
                 safe_mon_fallback = safe_mon.split('_')[0]
-                mon_path = os.path.join(REPO_ASSETS_DIR, 'res', 'pokemon', safe_mon_fallback, 'icon.png')
+                mon_path = os.path.join(POKEMON_ICON_DIR, safe_mon_fallback, 'icon.png')
                 
             mon_icon = get_sprite_html(mon_path, mon_name, is_trainer=False)
             
@@ -1226,9 +1292,9 @@ with tab_analytics:
                 s_data = df_species[df_species['Species'] == selected_species].iloc[0]
                 
                 safe_mon = selected_species.lower().replace(' ', '_').replace('.', '').replace('-', '_').replace("'", "")
-                mon_path = os.path.join(REPO_ASSETS_DIR, 'res', 'pokemon', safe_mon, 'icon.png')
+                mon_path = os.path.join(POKEMON_ICON_DIR, safe_mon, 'icon.png')
                 if not os.path.exists(mon_path) and '_' in safe_mon:
-                    mon_path = os.path.join(REPO_ASSETS_DIR, 'res', 'pokemon', safe_mon.split('_')[0], 'icon.png')
+                    mon_path = os.path.join(POKEMON_ICON_DIR, safe_mon.split('_')[0], 'icon.png')
                 mon_icon = get_sprite_html(mon_path, selected_species.title(), is_trainer=False)
                 
                 badges = f"{tier_badge_html(s_data.get('Tier'))} {role_badge_html(s_data.get('Role'), s_data.get('Tier'))}" if 'Tier' in df_species.columns else ""
@@ -1508,9 +1574,9 @@ with tab_analytics:
                             if i % cols_per_row_mv == 0:
                                 row_cols_mv = st.columns(cols_per_row_mv)
                             safe_mon_mv = sp.lower().replace(' ', '_').replace('.', '').replace('-', '_').replace("'", "")
-                            mon_path_mv = os.path.join(REPO_ASSETS_DIR, 'res', 'pokemon', safe_mon_mv, 'icon.png')
+                            mon_path_mv = os.path.join(POKEMON_ICON_DIR, safe_mon_mv, 'icon.png')
                             if not os.path.exists(mon_path_mv) and '_' in safe_mon_mv:
-                                mon_path_mv = os.path.join(REPO_ASSETS_DIR, 'res', 'pokemon', safe_mon_mv.split('_')[0], 'icon.png')
+                                mon_path_mv = os.path.join(POKEMON_ICON_DIR, safe_mon_mv.split('_')[0], 'icon.png')
                             icon_mv = get_sprite_html(mon_path_mv, sp.title(), is_trainer=False)
                             with row_cols_mv[i % cols_per_row_mv]:
                                 st.markdown(f"<div style='text-align:center;'>{icon_mv}</div>", unsafe_allow_html=True)
@@ -1698,9 +1764,9 @@ with tab_tierlist:
                     row_cols = st.columns(cols_per_row)
                 sp = srow['Species']
                 safe_mon = sp.lower().replace(' ', '_').replace('.', '').replace('-', '_').replace("'", "")
-                mon_path = os.path.join(REPO_ASSETS_DIR, 'res', 'pokemon', safe_mon, 'icon.png')
+                mon_path = os.path.join(POKEMON_ICON_DIR, safe_mon, 'icon.png')
                 if not os.path.exists(mon_path) and '_' in safe_mon:
-                    mon_path = os.path.join(REPO_ASSETS_DIR, 'res', 'pokemon', safe_mon.split('_')[0], 'icon.png')
+                    mon_path = os.path.join(POKEMON_ICON_DIR, safe_mon.split('_')[0], 'icon.png')
                 icon = get_sprite_html(mon_path, sp.title(), is_trainer=False)
                 role_text = display_role_text(srow.get('Role'), srow.get('Tier'))
                 with row_cols[i % cols_per_row]:
@@ -1780,14 +1846,14 @@ with tab_trainerdb:
                     i_data = indiv_subset[indiv_subset['Species'] == selected_poke].iloc[0]
 
                     safe_mon = selected_poke.lower().replace(' ', '_').replace('.', '').replace('-', '_').replace("'", "")
-                    mon_path = os.path.join(REPO_ASSETS_DIR, 'res', 'pokemon', safe_mon, 'icon.png')
+                    mon_path = os.path.join(POKEMON_ICON_DIR, safe_mon, 'icon.png')
                     if not os.path.exists(mon_path) and '_' in safe_mon:
-                        mon_path = os.path.join(REPO_ASSETS_DIR, 'res', 'pokemon', safe_mon.split('_')[0], 'icon.png')
+                        mon_path = os.path.join(POKEMON_ICON_DIR, safe_mon.split('_')[0], 'icon.png')
                     mon_icon = get_sprite_html(mon_path, selected_poke.title(), is_trainer=False)
 
                     st.markdown(f"<h3 style='display:flex; align-items:center; gap:10px;'>{mon_icon} {selected_poke.title()}'s Execution Data</h3>", unsafe_allow_html=True)
 
-                    actual_mon = get_actual_mon(t_key, selected_poke, game)
+                    actual_mon = get_actual_mon(t_key, selected_poke, game, t_row.get('Team_and_Movesets', ''))
                     static_info_db = get_species_static_info(selected_poke)
                     if actual_mon or (static_info_db and static_info_db["base_stats"]):
                         stat_col_db, meta_col_db = st.columns([2, 1])
