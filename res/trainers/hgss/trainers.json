@@ -65,7 +65,7 @@
     {
       "type": "TRTYPE_MON",
       "class": "TRAINERCLASS_RIVAL",
-      "name": "{TRNAME}Silver",
+      "name": "{TRNAME}Silver Cyndaquil",
       "items": [],
       "ai_flags": 1,
       "double": 0,
@@ -84,7 +84,7 @@
     {
       "type": "TRTYPE_MON",
       "class": "TRAINERCLASS_RIVAL",
-      "name": "{TRNAME}Silver",
+      "name": "{TRNAME}Silver Totodile",
       "items": [],
       "ai_flags": 1,
       "double": 0,
@@ -11951,7 +11951,7 @@
     {
       "type": "TRTYPE_MON",
       "class": "TRAINERCLASS_RIVAL",
-      "name": "{TRNAME}Silver Quilava (Azalea)",
+      "name": "{TRNAME}Silver Chikorita",
       "items": [],
       "ai_flags": 1,
       "double": 0,
@@ -11970,7 +11970,7 @@
     {
       "type": "TRTYPE_MON",
       "class": "TRAINERCLASS_RIVAL",
-      "name": "{TRNAME}Silver",
+      "name": "{TRNAME}Silver Quilava (Azalea)",
       "items": [],
       "ai_flags": 35,
       "double": 0,
@@ -22452,102 +22452,6 @@
         {
           "type": "TRMSG_AFTER",
           "message": "We use only Ghost-type Pok\u00e9mon.\\rNo Normal-type attack can harm them!\\n"
-        }
-      ]
-    },
-    {
-      "type": "TRTYPE_MON",
-      "class": "TRAINERCLASS_PASSERBY",
-      "name": "{TRNAME}Boy",
-      "items": [],
-      "ai_flags": 1,
-      "double": 0,
-      "party": [
-        {
-          "difficulty": 0,
-          "genderOverride": "TRPOKE_GENDER_OVERRIDE_OFF",
-          "abilityOverride": "TRPOKE_ABILITY_OVERRIDE_OFF",
-          "level": 5,
-          "species": "SPECIES_CHIKORITA",
-          "capsule": 0
-        }
-      ],
-      "messages": [
-        {
-          "type": "TRMSG_LAST_POKE_HALF",
-          "message": "...Humph!\\nYou\u2019re doing OK for someone weak.\\n"
-        },
-        {
-          "type": "TRMSG_LOSE",
-          "message": "...Humph!\\nAre you happy you won?\\n"
-        },
-        {
-          "type": "TRMSG_WIN",
-          "message": "...Humph!\\nThat was a waste of time.\\n"
-        }
-      ]
-    },
-    {
-      "type": "TRTYPE_MON",
-      "class": "TRAINERCLASS_PASSERBY",
-      "name": "{TRNAME}Boy",
-      "items": [],
-      "ai_flags": 1,
-      "double": 0,
-      "party": [
-        {
-          "difficulty": 0,
-          "genderOverride": "TRPOKE_GENDER_OVERRIDE_OFF",
-          "abilityOverride": "TRPOKE_ABILITY_OVERRIDE_OFF",
-          "level": 5,
-          "species": "SPECIES_CYNDAQUIL",
-          "capsule": 0
-        }
-      ],
-      "messages": [
-        {
-          "type": "TRMSG_LAST_POKE_HALF",
-          "message": "...Humph!\\nYou\u2019re doing OK for someone weak.\\n"
-        },
-        {
-          "type": "TRMSG_LOSE",
-          "message": "...Humph!\\nAre you happy you won?\\n"
-        },
-        {
-          "type": "TRMSG_WIN",
-          "message": "...Humph!\\nThat was a waste of time.\\n"
-        }
-      ]
-    },
-    {
-      "type": "TRTYPE_MON",
-      "class": "TRAINERCLASS_PASSERBY",
-      "name": "{TRNAME}Boy",
-      "items": [],
-      "ai_flags": 1,
-      "double": 0,
-      "party": [
-        {
-          "difficulty": 0,
-          "genderOverride": "TRPOKE_GENDER_OVERRIDE_OFF",
-          "abilityOverride": "TRPOKE_ABILITY_OVERRIDE_OFF",
-          "level": 5,
-          "species": "SPECIES_TOTODILE",
-          "capsule": 0
-        }
-      ],
-      "messages": [
-        {
-          "type": "TRMSG_LAST_POKE_HALF",
-          "message": "...Humph!\\nYou\u2019re doing OK for someone weak.\\n"
-        },
-        {
-          "type": "TRMSG_LOSE",
-          "message": "...Humph!\\nAre you happy you won?\\n"
-        },
-        {
-          "type": "TRMSG_WIN",
-          "message": "...Humph!\\nThat was a waste of time.\\n"
         }
       ]
     },
