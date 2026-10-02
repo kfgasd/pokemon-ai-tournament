@@ -68,7 +68,7 @@ st.sidebar.header("Dataset")
 GAME_LABELS = {"platinum": "Pokémon Platinum", "hgss": "HeartGold / SoulSilver", "combined": "Combined (Platinum + HGSS)"}
 LEVEL_LABELS = {"normal": "Normal (story levels)", "50": "Level Cap 50", "100": "Level Cap 100"}
 LEVEL_HELP = ("'Normal' battles each trainer at their real in-game level, so the roster spans a Youngster's level 5 team up to " 
-              "a level 100 postgame Champion. 'Level Cap 50/100' reruns the whole tournament with every Pokémon's level forced "
+              "a level 70+ postgame Champion. 'Level Cap 50/100' reruns the whole tournament with every Pokémon's level forced "
               "to that number instead, so a trainer's ranking reflects team-building and AI skill alone, without an early-game "
               "trainer being penalized just for being fought at a low story level.")
 FORMAT_LABELS = {"normal": "Normal (mixed, as in-game)", "doubles": "Forced Doubles", "singles": "Forced Singles"}
@@ -1679,8 +1679,11 @@ with tab_tierlist:
                                              "**Disrupter / Hazards / Weather** - top quarter of the species that get a meaningful amount of that "
                                              "category's assists (status conditions, entry hazards, or weather), ranked by how much of the species' total "
                                              "assists fall in that category.\n\n"
-                                             "**Support** - like Disrupter/Hazards/Weather, but for healing/curing a teammate (Wish, Heal Bell, ...) "
-                                             "and for Reflect/Light Screen: reducing a hit a teammate went on to avenge by beating that very attacker.\n\n"
+                                             "**Support** - like Disrupter/Hazards/Weather, but for helping a teammate: healing/curing it (Wish, Heal Bell, ...), "
+                                             "Reflect/Light Screen reducing a hit a teammate went on to avenge by beating that very attacker, and stat "
+                                             "debuffs or Tailwind that set up a KO - a lowered Defense/Sp. Def when a matching physical/special hit lands the "
+                                             "KO, a lowered Attack/Sp. Atk that made the foe fall short of a KO it would otherwise have scored, or a lowered "
+                                             "Speed / Tailwind that let a teammate move first and land the KO.\n\n"
                                              "**Passer** - Baton Passed a real buff (a stat boost, Substitute, Aqua Ring, ...) onto a teammate that then "
                                              "scored a KO while still carrying it.\n\n"
                                              "**Tank** / **Fodder** - no role above; qualifies by top-quarter average lifespan instead. Tank if the species' "
