@@ -9430,7 +9430,7 @@
     {
       "type": "TRTYPE_MON",
       "class": "TRAINERCLASS_TEAM_ROCKET",
-      "name": "{TRNAME}Grunt Underground ",
+      "name": "{TRNAME}Grunt Underground 7",
       "items": [],
       "ai_flags": 1,
       "double": 0,
@@ -18360,7 +18360,7 @@
     {
       "type": "TRTYPE_MON_MOVES",
       "class": "TRAINERCLASS_TEAM_ROCKET_F",
-      "name": "{TRNAME}Grunt Hideout",
+      "name": "{TRNAME}Grunt Hideout 9",
       "items": [],
       "ai_flags": 1,
       "double": 0,
