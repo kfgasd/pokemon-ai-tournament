@@ -18,6 +18,8 @@ and 3.13.
 replay_info{suffix}.json (next to the CSVs) names the engine version of a dataset: {"version_id": ..., "settings": {...}}. The engine source is run
 with its absolute data paths pointed at this deployment's copies; the version fingerprint (engine, move DB, trainer / species / item data) is
 recomputed on load and must equal the recorded version_id - if the bundled data ever differed, the replay refuses to run instead of drifting."""
+import glob
+import hashlib
 import json
 import os
 import re
@@ -73,6 +75,26 @@ def _constants(version_dir):
     }
 
 
+def _portable_tree_fingerprint(root, pattern):
+    """The engine's own _tree_fingerprint, made independent of the operating system. The engine sorts the FULL paths, so whether
+    'porygon/data.json' sorts before 'porygon2/data.json' depends on the path separator (a slash sorts before '2', a backslash after it); the stamped versions were hashed on
+    Windows. Sorting as if every separator were a backslash gives the stamped value on any OS (the live Linux app computed a different
+    species fingerprint, and so a different version_id, with the engine's own function)."""
+    h = hashlib.sha256()
+    for path in sorted(glob.glob(os.path.join(root, pattern)), key=lambda p: p.replace("/", "\\")):
+        h.update(os.path.relpath(path, root).replace("\\", "/").encode("utf-8"))
+        h.update(_sha256_file(path).encode("ascii"))
+    return h.hexdigest()
+
+
+def _sha256_file(path):
+    h = hashlib.sha256()
+    with open(path, "rb") as f:
+        for chunk in iter(lambda: f.read(1 << 20), b""):
+            h.update(chunk)
+    return h.hexdigest()
+
+
 def _load_engine(suffix, info):
     vdir = os.path.join(SNAPSHOT_DIR, info["version_id"])
     src_path = os.path.join(vdir, "pokemon_ai_tournament.py")
@@ -88,6 +110,7 @@ def _load_engine(suffix, info):
     sys.modules[mod.__name__] = mod
     try:
         exec(compile(src, src_path, "exec"), mod.__dict__)
+        mod._tree_fingerprint = _portable_tree_fingerprint
         st = settings_from_suffix(suffix)
         mod.SET_LEVEL = st["level"]
         mod.MOVESET_LEVEL_SOURCE = "original"
@@ -104,7 +127,10 @@ def _load_engine(suffix, info):
         mod.install_duo_trainers()
         got = mod.engine_version_info()
         if got["version_id"] != info["version_id"]:
-            raise ReplayError(f"data mismatch: this checkout hashes to engine version {got['version_id']}, the dataset was played by {info['version_id']}")
+            differs = [k for k in ("engine_sha256", "moves_db_sha256", "hgss_trainers_sha256", "platinum_trainers_fingerprint", "species_fingerprint",
+                                   "items_fingerprint") if got.get(k) != info.get(k)]
+            raise ReplayError(f"data mismatch: this checkout hashes to engine version {got['version_id']}, the dataset was played by "
+                              f"{info['version_id']} (differs in: {', '.join(differs) or 'nothing recorded'})")
         for k, v in (info.get("settings") or {}).items():
             if got["settings"].get(k) != v:
                 raise ReplayError(f"setting {k} differs: dataset {v!r}, replay {got['settings'].get(k)!r}")

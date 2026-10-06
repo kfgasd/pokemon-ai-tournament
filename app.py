@@ -1181,6 +1181,7 @@ with tab_logs:
             target_filename = next((f for f in possible_filenames if f in available_logs), None)
             log_content = None
             rebuilt_note = None
+            replay_failed = False
 
             if REPLAY_INFO:
                 match_row = replay_match_row(suffix, raw_trainer_name(t1_name), raw_trainer_name(t2_name))
@@ -1195,6 +1196,7 @@ with tab_logs:
                         rebuilt_note = (f"Rebuilt from the match seed {match_row['Seed_Base']} with engine version {REPLAY_INFO['version_id']} "
                                         f"- the same battle the tournament played, no stored log.")
                     except Exception as replay_err:
+                        replay_failed = True
                         st.error(f"Could not rebuild this battle ({type(replay_err).__name__}: {replay_err}).")
             elif target_filename:
                 raw_path = os.path.join(results_dir, target_filename)
@@ -1233,7 +1235,7 @@ with tab_logs:
                     st.markdown(f"<div style=\"height: 520px; overflow-y: auto; background-color: #1e1e1e; padding: 15px; border-radius: 5px; font-family: 'Courier New', monospace; white-space: pre-wrap; line-height: 1.5; color: #d4d4d4; border: 1px solid #333;\">{safe_text}</div>", unsafe_allow_html=True)
                 
                 st.caption(rebuilt_note or f"Loaded log: `{target_filename}`")
-            else:
+            elif not replay_failed:             # (a failed rebuild already showed its own error above)
                 if game_num == "Game 3" and min_games_filter < 3:
                     st.info("No Game 3 log found. This match likely ended in a 2-0 sweep!")
                 else:
