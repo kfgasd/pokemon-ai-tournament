@@ -1,0 +1,6 @@
+{
+ "files": 2391,
+ "bytes": 6120499,
+ "listing_sha1": "e62120af4b903adfddf8105b939c94e6fe58a5f0",
+ "about": "decomp files the tournament engine reads; built by video_tools/build_replay_bundle.py"
+}

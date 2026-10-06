@@ -1,0 +1,4 @@
+# Replay inputs must stay byte-exact: the engine version fingerprint hashes these files, so no CRLF/LF conversion
+replay_data/** -text
+tournament_data/engine_snapshots/** -text
+tournament_data/replay_info*.json -text

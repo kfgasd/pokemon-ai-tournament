@@ -33,6 +33,14 @@ try:
 except Exception:
     eng = None
 
+# Battle logs are not stored for a dataset that carries a replay_info{suffix}.json: replay_engine.py plays any of its matches again from the
+# match's recorded Seed_Base with the exact engine version that played the dataset (a few MB of bundled game data, see its docstring) and
+# gives back the identical log. Datasets without that file still read their logs from tournament_results{suffix}_partN.zip.
+try:
+    import replay_engine
+except Exception:
+    replay_engine = None
+
 
 def safe_filename(name):
     """MUST match pokemon_ai_tournament.py's own safe_filename() exactly: it's what the tournament script actually names a
@@ -163,6 +171,7 @@ game_title = {"hgss": "HGSS", "combined": "Combined", "platinum": "Pokémon Plat
 
 csv_file = dp(f"standings{suffix}.csv")
 results_dir = dp(f"tournament_results{suffix}")
+REPLAY_INFO = replay_engine.dataset_info(suffix) if replay_engine else None     # None -> this dataset's logs live in zip parts
 
 st.sidebar.caption(f"`standings{suffix}.csv`")
 st.title(f"{game_title} AI Tournament: Database")
@@ -431,7 +440,45 @@ def get_available_logs(target_dir):
 
     return available_files
 
-available_logs = get_available_logs(results_dir)
+available_logs = set() if REPLAY_INFO else get_available_logs(results_dir)
+
+
+def raw_trainer_name(display_name):
+    """matches*.csv spells Dragon's Den trainers "(DD)"; df['Display_Name'] shows "(Dragon's Den)" (see its own comment)."""
+    return display_name.replace("(Dragon's Den)", "(DD)")
+
+
+@st.cache_data
+def load_replay_matches(suffix):
+    """matches{suffix}.csv - one row per match with the Seed_Base the engine played it from."""
+    cols = ["Trainer_A", "Trainer_B", "Score_A", "Score_B", "Total_Turns", "Seed_Base"]
+    return pd.read_csv(dp(f"matches{suffix}.csv"), usecols=cols, dtype={"Trainer_A": "category", "Trainer_B": "category"})
+
+
+@st.cache_data(max_entries=32, show_spinner=False)
+def replay_games_vs(suffix, raw_name):
+    """{opponent: games played in that match} for every match this trainer is in (a match is 2 to 7 games)."""
+    m = load_replay_matches(suffix)
+    a, b = m[m["Trainer_A"] == raw_name], m[m["Trainer_B"] == raw_name]
+    out = {str(o): int(g) for o, g in zip(a["Trainer_B"], a["Score_A"] + a["Score_B"])}
+    out.update({str(o): int(g) for o, g in zip(b["Trainer_A"], b["Score_A"] + b["Score_B"])})
+    return out
+
+
+@st.cache_data(max_entries=64, show_spinner=False)
+def replay_match_row(suffix, raw_a, raw_b):
+    m = load_replay_matches(suffix)
+    r = m[((m["Trainer_A"] == raw_a) & (m["Trainer_B"] == raw_b)) | ((m["Trainer_A"] == raw_b) & (m["Trainer_B"] == raw_a))]
+    if r.empty:
+        return None
+    row = r.iloc[0]
+    return {"Trainer_A": str(row["Trainer_A"]), "Trainer_B": str(row["Trainer_B"]), "Score_A": int(row["Score_A"]), "Score_B": int(row["Score_B"]),
+            "Total_Turns": int(row["Total_Turns"]), "Seed_Base": int(row["Seed_Base"])}
+
+
+@st.cache_data(max_entries=200, show_spinner=False)
+def rebuild_match_logs(suffix, raw_a, raw_b, seed_base):
+    return replay_engine.rebuild_match(suffix, raw_a, raw_b, seed_base)
 
 # --- SIDEBAR: ADVANCED SYNERGY FILTERS ---
 st.sidebar.markdown("---")
@@ -1061,21 +1108,25 @@ with tab_logs:
         t1_display_safe = safe_filename(t1_name)
         
         valid_t2s = []
-        for t2 in t2_names:
-            if t2 == t1_name: continue
-            t2_key = trainer_dict[t2]
-            t2_display_safe = safe_filename(t2)
-            
-            possible_filenames = [
-                f"{t1_display_safe}_vs_{t2_display_safe}_game{min_games_filter}.txt",
-                f"{t2_display_safe}_vs_{t1_display_safe}_game{min_games_filter}.txt",
-                f"{t1_key}_vs_{t2_key}_game{min_games_filter}.txt",
-                f"{t2_key}_vs_{t1_key}_game{min_games_filter}.txt"
-            ]
-            
-            if any(f in available_logs for f in possible_filenames):
-                valid_t2s.append(t2)
-                
+        if REPLAY_INFO:
+            games_vs = replay_games_vs(suffix, raw_trainer_name(t1_name))
+            valid_t2s = [t2 for t2 in t2_names if t2 != t1_name and games_vs.get(raw_trainer_name(t2), 0) >= min_games_filter]
+        else:
+            for t2 in t2_names:
+                if t2 == t1_name: continue
+                t2_key = trainer_dict[t2]
+                t2_display_safe = safe_filename(t2)
+
+                possible_filenames = [
+                    f"{t1_display_safe}_vs_{t2_display_safe}_game{min_games_filter}.txt",
+                    f"{t2_display_safe}_vs_{t1_display_safe}_game{min_games_filter}.txt",
+                    f"{t1_key}_vs_{t2_key}_game{min_games_filter}.txt",
+                    f"{t2_key}_vs_{t1_key}_game{min_games_filter}.txt"
+                ]
+
+                if any(f in available_logs for f in possible_filenames):
+                    valid_t2s.append(t2)
+
         t2_options = valid_t2s
 
     with col2:
@@ -1092,7 +1143,9 @@ with tab_logs:
         t2_key_probe = trainer_dict[t2_name]
         t1_disp_safe_probe = safe_filename(t1_name)
         t2_disp_safe_probe = safe_filename(t2_name)
-        for i in range(1, 8):
+        if REPLAY_INFO:
+            available_game_nums = list(range(1, replay_games_vs(suffix, raw_trainer_name(t1_name)).get(raw_trainer_name(t2_name), 0) + 1))
+        for i in ([] if REPLAY_INFO else range(1, 8)):
             gs = f"game{i}"
             probe_filenames = [
                 f"{t1_disp_safe_probe}_vs_{t2_disp_safe_probe}_{gs}.txt",
@@ -1127,8 +1180,23 @@ with tab_logs:
             
             target_filename = next((f for f in possible_filenames if f in available_logs), None)
             log_content = None
+            rebuilt_note = None
 
-            if target_filename:
+            if REPLAY_INFO:
+                match_row = replay_match_row(suffix, raw_trainer_name(t1_name), raw_trainer_name(t2_name))
+                if match_row is not None:
+                    game_n = int(game_num.split()[-1])
+                    try:
+                        with st.spinner("Rebuilding this battle from its seed..."):
+                            rebuilt = rebuild_match_logs(suffix, match_row["Trainer_A"], match_row["Trainer_B"], match_row["Seed_Base"])
+                        log_content = rebuilt["logs"].get(game_n)
+                        if rebuilt["score"] != [match_row["Score_A"], match_row["Score_B"]] or rebuilt["turns"] != match_row["Total_Turns"]:
+                            st.warning("The rebuilt match does not reproduce this match's recorded result - treat this log with caution.")
+                        rebuilt_note = (f"Rebuilt from the match seed {match_row['Seed_Base']} with engine version {REPLAY_INFO['version_id']} "
+                                        f"- the same battle the tournament played, no stored log.")
+                    except Exception as replay_err:
+                        st.error(f"Could not rebuild this battle ({type(replay_err).__name__}: {replay_err}).")
+            elif target_filename:
                 raw_path = os.path.join(results_dir, target_filename)
                 if os.path.exists(raw_path):
                     with open(raw_path, 'r', encoding='utf-8') as f:
@@ -1164,7 +1232,7 @@ with tab_logs:
                 else:
                     st.markdown(f"<div style=\"height: 520px; overflow-y: auto; background-color: #1e1e1e; padding: 15px; border-radius: 5px; font-family: 'Courier New', monospace; white-space: pre-wrap; line-height: 1.5; color: #d4d4d4; border: 1px solid #333;\">{safe_text}</div>", unsafe_allow_html=True)
                 
-                st.caption(f"Loaded log: `{target_filename}`")
+                st.caption(rebuilt_note or f"Loaded log: `{target_filename}`")
             else:
                 if game_num == "Game 3" and min_games_filter < 3:
                     st.info("No Game 3 log found. This match likely ended in a 2-0 sweep!")
