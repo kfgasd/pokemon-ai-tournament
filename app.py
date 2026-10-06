@@ -246,9 +246,11 @@ if OTHER_SUFFIX and os.path.exists(dp(f"standings{OTHER_SUFFIX}.csv")):
 # --- IN-GAME AI FLAGS (trainer_ai_flags.json, from the engine's own rosters) ---------------------------------------------------------------
 AI_LABELS = {"BASIC": "Basic", "EVALUATE_ATTACK": "Evaluate Attack", "EXPERT": "Expert", "PRIORITIZE_EXTREMES": "Prioritize Extremes",
              "SETUP_FIRST_TURN": "Setup First Turn", "RISKY": "Risky", "WEATHER": "Weather", "BATON_PASS": "Baton Pass"}
-AI_HELP = ("The AI scripts a trainer runs in the real game: Basic avoids bad moves, Evaluate Attack picks by damage, Expert adds the full "
-           "situational logic (switching, setup, status, items), Prioritize Extremes favours KOs and OHKO-level moves, Risky takes gambles, "
-           "Setup First Turn opens with a setup move, Weather and Baton Pass are HGSS extras.")
+AI_HELP = ("The tournament runs a port of the game's own trainer AI: every move starts at 100 points, each AI flag a trainer has adds or subtracts "
+           "points, the highest score wins. Basic skips useless or failing moves. Evaluate Attack rewards the strongest and knockout moves. "
+           "Expert adds the situational logic for setup, status, healing and field effects. Prioritize Extremes favours status moves and "
+           "special moves like Explosion, Focus Punch and charge moves. Risky sometimes gambles on a fixed list of risky moves. Setup First "
+           "Turn opens with a setup move. Weather and Baton Pass are HGSS extras.")
 
 
 @st.cache_data
@@ -586,6 +588,8 @@ min_games_filter = st.sidebar.slider("Minimum Games Played in Match:", min_value
 
 st.sidebar.header("Display Settings")
 expand_log = st.sidebar.checkbox("Show full log (Disable scrolling)", value=False)
+watch_default = st.sidebar.checkbox("Open the animated replay by default", value=False,
+                                    help="Switches the 'Watch this battle' replay on whenever you open a battle log (you can still turn it off per battle).")
 
 # --- FILTER APPLICATION ---
 def apply_filters(df_to_filter):
@@ -1406,6 +1410,27 @@ with tab_logs:
                         i += 1
 
             if log_content:
+                game_n_sel = int(game_num.split()[-1])
+                raw_a_sel, raw_b_sel = raw_trainer_name(t1_name), raw_trainer_name(t2_name)
+                if replay_html is not None:
+                    # The key carries the sidebar default, so changing "open the replay by default" resets this switch to the new default.
+                    if st.toggle("▶ Watch this battle as an animated replay", value=watch_default, key=f"watch_replay_toggle_{int(watch_default)}",
+                                 help="Plays the log as a Gen 4-style battle: sprites, HP bars, move types. Space = play/pause, arrow keys step, "
+                                      "the speed buttons go 0.5x-4x. Stays on while you browse other fights (the sidebar can switch it on by default)."):
+                        level_txt = {"normal": "Normal levels", "50": "Level 50", "100": "Level 100"}.get(_level, str(_level))
+                        page_title = f"{game_title} · {level_txt} · {'Items' if pool[0]['items'] else 'No items'}"
+                        components.html(replay_page_html(suffix, log_content, t1_name, t2_name, page_title), height=700, scrolling=False)
+                fight_id = f"{suffix} | {raw_a_sel} | {raw_b_sel} | game {game_n_sel}"
+                with st.expander("Fight ID - pick this fight for the video"):
+                    st.code(fight_id, language=None)
+                    shortlist_path = os.environ.get("VIDEO_SHORTLIST")
+                    if shortlist_path:
+                        pick_note = st.text_input("Note (optional)", key="shortlist_note", placeholder="why this fight?")
+                        if st.button("➕ Add to video shortlist", key="shortlist_add"):
+                            added = add_to_shortlist(shortlist_path, suffix, raw_a_sel, raw_b_sel, game_n_sel, pick_note)
+                            st.success("Added." if added else "Already on the shortlist.")
+                    else:
+                        st.caption("Copy the line above and send it over, or run the app locally with VIDEO_SHORTLIST set to get an Add button.")
                 safe_text = html.escape(log_content, quote=False)
                 safe_text = re.sub(r'^[ ]{2,4}', '&nbsp;&nbsp;&nbsp;&nbsp;', safe_text, flags=re.MULTILINE)
                 safe_text = re.sub(r'(X\s+.*?\s+fainted!)', r'<span style="color: #ff6b6b; font-weight: bold; background: rgba(255, 107, 107, 0.15); padding: 1px 6px; border-radius: 4px;">\1</span>', safe_text)
@@ -1419,27 +1444,6 @@ with tab_logs:
                     st.markdown(f"<div style=\"height: 520px; overflow-y: auto; background-color: #1e1e1e; padding: 15px; border-radius: 5px; font-family: 'Courier New', monospace; white-space: pre-wrap; line-height: 1.5; color: #d4d4d4; border: 1px solid #333;\">{safe_text}</div>", unsafe_allow_html=True)
                 
                 st.caption(rebuilt_note or f"Loaded log: `{target_filename}`")
-
-                game_n_sel = int(game_num.split()[-1])
-                raw_a_sel, raw_b_sel = raw_trainer_name(t1_name), raw_trainer_name(t2_name)
-                if replay_html is not None:
-                    if st.toggle("▶ Watch this battle as an animated replay", key="watch_replay_toggle",
-                                 help="Plays the log as a Gen 4-style battle: sprites, HP bars, move types. Space = play/pause, arrow keys step, "
-                                      "the speed buttons go 0.5x-4x. Stays on while you browse other fights."):
-                        level_txt = {"normal": "Normal levels", "50": "Level 50", "100": "Level 100"}.get(_level, str(_level))
-                        page_title = f"{game_title} · {level_txt} · {'Items' if pool[0]['items'] else 'No items'}"
-                        components.html(replay_page_html(suffix, log_content, t1_name, t2_name, page_title), height=800, scrolling=False)
-                fight_id = f"{suffix} | {raw_a_sel} | {raw_b_sel} | game {game_n_sel}"
-                with st.expander("Fight ID - pick this fight for the video"):
-                    st.code(fight_id, language=None)
-                    shortlist_path = os.environ.get("VIDEO_SHORTLIST")
-                    if shortlist_path:
-                        pick_note = st.text_input("Note (optional)", key="shortlist_note", placeholder="why this fight?")
-                        if st.button("➕ Add to video shortlist", key="shortlist_add"):
-                            added = add_to_shortlist(shortlist_path, suffix, raw_a_sel, raw_b_sel, game_n_sel, pick_note)
-                            st.success("Added." if added else "Already on the shortlist.")
-                    else:
-                        st.caption("Copy the line above and send it over, or run the app locally with VIDEO_SHORTLIST set to get an Add button.")
             elif not replay_failed:             # (a failed rebuild already showed its own error above)
                 if game_num == "Game 3" and min_games_filter < 3:
                     st.info("No Game 3 log found. This match likely ended in a 2-0 sweep!")
@@ -2370,78 +2374,81 @@ def render_level_summary():
 
 with tab_leaderboard:
     st.header("Tournament Standings")
-    render_level_summary()
-    
-    col_view, col_tier, col_search = st.columns([1, 1, 1])
-    with col_view:
-        view_mode = st.radio("View Mode", ["Visualized Cards", "Classic Table"], horizontal=True)
-    with col_tier:
-        tier_filter = st.selectbox("Tier Filter", ["All", "S+", "S", "S-", "A+", "A", "A-", "B+", "B", "B-", "C+", "C", "C-", "D+", "D", "D-", "E+", "E", "E-", "F+", "F", "F-"])
-    with col_search:
-        trainer_search = st.text_input("Search Trainer", placeholder="e.g. Cynthia, Ace Trainer...").strip()
-    
-    leaderboard_df = t1_df.copy()
-    
-    if 'Elo' in leaderboard_df.columns:
-        leaderboard_df = leaderboard_df.sort_values(by='Elo', ascending=False).reset_index(drop=True)
-        
-    leaderboard_df.index = np.arange(1, len(leaderboard_df) + 1)
-    leaderboard_df.index.name = "Rank"
-    leaderboard_df['True_Rank'] = leaderboard_df.index
-    
-    if tier_filter != "All":
-        leaderboard_df = leaderboard_df[leaderboard_df['Tier'] == tier_filter]
-        
-    if trainer_search:
-        leaderboard_df = leaderboard_df[leaderboard_df['Display_Name'].str.contains(trainer_search, case=False, na=False)]
-    
-    if view_mode == "Classic Table":
-        # True_Rank itself is left out here - the dataframe's own index (labeled "Rank" above) already shows the exact
-        # same number as its leftmost column, and Streamlit renders that index automatically, so keeping it as a
-        # second, identical data column just duplicated it. The Visualized Cards branch below still reads
-        # row['True_Rank'] directly (a plain .iterrows() row has no easy access to its own index label there).
-        if LEVEL_CMP:
-            leaderboard_df[f"Rank ({OTHER_LEVEL_NAME})"] = leaderboard_df['Trainer_Key'].map(lambda k: LEVEL_CMP.get(k, {}).get('rank_o'))
-            leaderboard_df["Rank shift"] = leaderboard_df['Trainer_Key'].map(lambda k: LEVEL_CMP.get(k, {}).get('shift'))
-        leaderboard_df["AI flags"] = leaderboard_df['Trainer_Key'].map(lambda k: ", ".join(AI_LABELS.get(f, f) for f in AI_FLAGS_OF.get(k, [])))
-        desired_cols = ['Display_Name', 'Match_Wins', 'Match_Losses', 'Game_Wins', 'Game_Losses', 'Elo', 'Tier'] + \
-                       ([f"Rank ({OTHER_LEVEL_NAME})", "Rank shift"] if LEVEL_CMP else []) + ['AI flags', 'Class', 'Greatest_Win', 'Worst_Loss', 'Team_and_Movesets']
-        available_cols = [col for col in desired_cols if col in leaderboard_df.columns]
-        st.dataframe(
-            leaderboard_df[available_cols],
-            use_container_width=True,
-            column_config={"Team_and_Movesets": st.column_config.TextColumn("Team & Movesets", width="large")}
-        )
-        
+    lb_section = st.radio("Show", ["Trainer Leaderboard", "Level comparison"], horizontal=True, key="lb_section", label_visibility="collapsed") if LEVEL_CMP else "Trainer Leaderboard"
+    if lb_section == "Level comparison":
+        render_level_summary()
     else:
-        cards_per_page = 50
-        total_trainers = len(leaderboard_df)
-        total_pages = max(1, (total_trainers + cards_per_page - 1) // cards_per_page)
+    
+        col_view, col_tier, col_search = st.columns([1, 1, 1])
+        with col_view:
+            view_mode = st.radio("View Mode", ["Visualized Cards", "Classic Table"], horizontal=True)
+        with col_tier:
+            tier_filter = st.selectbox("Tier Filter", ["All", "S+", "S", "S-", "A+", "A", "A-", "B+", "B", "B-", "C+", "C", "C-", "D+", "D", "D-", "E+", "E", "E-", "F+", "F", "F-"])
+        with col_search:
+            trainer_search = st.text_input("Search Trainer", placeholder="e.g. Cynthia, Ace Trainer...").strip()
+    
+        leaderboard_df = t1_df.copy()
+    
+        if 'Elo' in leaderboard_df.columns:
+            leaderboard_df = leaderboard_df.sort_values(by='Elo', ascending=False).reset_index(drop=True)
         
-        if total_trainers == 0:
-            st.warning("No trainers found matching your filters.")
+        leaderboard_df.index = np.arange(1, len(leaderboard_df) + 1)
+        leaderboard_df.index.name = "Rank"
+        leaderboard_df['True_Rank'] = leaderboard_df.index
+    
+        if tier_filter != "All":
+            leaderboard_df = leaderboard_df[leaderboard_df['Tier'] == tier_filter]
+        
+        if trainer_search:
+            leaderboard_df = leaderboard_df[leaderboard_df['Display_Name'].str.contains(trainer_search, case=False, na=False)]
+    
+        if view_mode == "Classic Table":
+            # True_Rank itself is left out here - the dataframe's own index (labeled "Rank" above) already shows the exact
+            # same number as its leftmost column, and Streamlit renders that index automatically, so keeping it as a
+            # second, identical data column just duplicated it. The Visualized Cards branch below still reads
+            # row['True_Rank'] directly (a plain .iterrows() row has no easy access to its own index label there).
+            if LEVEL_CMP:
+                leaderboard_df[f"Rank ({OTHER_LEVEL_NAME})"] = leaderboard_df['Trainer_Key'].map(lambda k: LEVEL_CMP.get(k, {}).get('rank_o'))
+                leaderboard_df["Rank shift"] = leaderboard_df['Trainer_Key'].map(lambda k: LEVEL_CMP.get(k, {}).get('shift'))
+            leaderboard_df["AI flags"] = leaderboard_df['Trainer_Key'].map(lambda k: ", ".join(AI_LABELS.get(f, f) for f in AI_FLAGS_OF.get(k, [])))
+            desired_cols = ['Display_Name', 'Match_Wins', 'Match_Losses', 'Game_Wins', 'Game_Losses', 'Elo', 'Tier'] + \
+                           ([f"Rank ({OTHER_LEVEL_NAME})", "Rank shift"] if LEVEL_CMP else []) + ['AI flags', 'Class', 'Greatest_Win', 'Worst_Loss', 'Team_and_Movesets']
+            available_cols = [col for col in desired_cols if col in leaderboard_df.columns]
+            st.dataframe(
+                leaderboard_df[available_cols],
+                use_container_width=True,
+                column_config={"Team_and_Movesets": st.column_config.TextColumn("Team & Movesets", width="large")}
+            )
+        
         else:
-            st.write(f"Found **{total_trainers}** trainers matching your filters.")
-            
-            if total_pages > 1:
-                col_space1, col_slider, col_space2 = st.columns([1, 2, 1])
-                with col_slider:
-                    current_page = st.slider("Page (Shows 50 trainers per page)", min_value=1, max_value=total_pages, value=1)
+            cards_per_page = 50
+            total_trainers = len(leaderboard_df)
+            total_pages = max(1, (total_trainers + cards_per_page - 1) // cards_per_page)
+        
+            if total_trainers == 0:
+                st.warning("No trainers found matching your filters.")
             else:
-                current_page = 1
+                st.write(f"Found **{total_trainers}** trainers matching your filters.")
+            
+                if total_pages > 1:
+                    col_space1, col_slider, col_space2 = st.columns([1, 2, 1])
+                    with col_slider:
+                        current_page = st.slider("Page (Shows 50 trainers per page)", min_value=1, max_value=total_pages, value=1)
+                else:
+                    current_page = 1
                 
-            start_idx = (current_page - 1) * cards_per_page
-            end_idx = start_idx + cards_per_page
+                start_idx = (current_page - 1) * cards_per_page
+                end_idx = start_idx + cards_per_page
             
-            valid_pt_folders = get_valid_trainer_folders(TRAINER_SPRITE_DIR)
-            hgss_files = get_hgss_sprites(HGSS_ASSETS_DIR)
+                valid_pt_folders = get_valid_trainer_folders(TRAINER_SPRITE_DIR)
+                hgss_files = get_hgss_sprites(HGSS_ASSETS_DIR)
             
-            html_cards = "<div style='display: flex; flex-wrap: wrap; gap: 20px; padding: 10px 0;'>"
+                html_cards = "<div style='display: flex; flex-wrap: wrap; gap: 20px; padding: 10px 0;'>"
             
-            for _, row in leaderboard_df.iloc[start_idx:end_idx].iterrows():
-                actual_rank = row['True_Rank']
-                card = build_trainer_card(row, game_title, valid_pt_folders, hgss_files, rank_idx=actual_rank)
-                html_cards += card
+                for _, row in leaderboard_df.iloc[start_idx:end_idx].iterrows():
+                    actual_rank = row['True_Rank']
+                    card = build_trainer_card(row, game_title, valid_pt_folders, hgss_files, rank_idx=actual_rank)
+                    html_cards += card
                 
-            html_cards += "</div>"
-            st.markdown(html_cards, unsafe_allow_html=True)
+                html_cards += "</div>"
+                st.markdown(html_cards, unsafe_allow_html=True)
