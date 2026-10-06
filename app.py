@@ -1264,6 +1264,14 @@ def replay_page_html(suffix, log_text, name_a, name_b, title):
     return replay_html.build_html(log_text, f"{suffix}.txt", extra_meta=meta, trainer_images=images)
 
 
+def show_html(html_text, height):
+    """Embeds a self-contained HTML page. st.iframe is the current API; components.html (deprecated, announced for removal) is the fallback for older Streamlit."""
+    if hasattr(st, "iframe"):
+        st.iframe(html_text, height=height)
+    else:
+        components.html(html_text, height=height, scrolling=False)
+
+
 def add_to_shortlist(path, suffix, raw_a, raw_b, game_n, note):
     """Appends one fight to the video shortlist (same shape as video_tools/highlights.json), unless it is already there."""
     try:
@@ -1419,18 +1427,16 @@ with tab_logs:
                                       "the speed buttons go 0.5x-4x. Stays on while you browse other fights (the sidebar can switch it on by default)."):
                         level_txt = {"normal": "Normal levels", "50": "Level 50", "100": "Level 100"}.get(_level, str(_level))
                         page_title = f"{game_title} · {level_txt} · {'Items' if pool[0]['items'] else 'No items'}"
-                        components.html(replay_page_html(suffix, log_content, t1_name, t2_name, page_title), height=700, scrolling=False)
-                fight_id = f"{suffix} | {raw_a_sel} | {raw_b_sel} | game {game_n_sel}"
-                with st.expander("Fight ID - pick this fight for the video"):
-                    st.code(fight_id, language=None)
-                    shortlist_path = os.environ.get("VIDEO_SHORTLIST")
-                    if shortlist_path:
+                        show_html(replay_page_html(suffix, log_content, t1_name, t2_name, page_title), 700)
+                shortlist_path = os.environ.get("VIDEO_SHORTLIST")
+                if shortlist_path:              # only in the local fight picker (video_tools/fight_picker.cmd) - not shown on the live site
+                    fight_id = f"{suffix} | {raw_a_sel} | {raw_b_sel} | game {game_n_sel}"
+                    with st.expander("Fight ID - pick this fight for the video"):
+                        st.code(fight_id, language=None)
                         pick_note = st.text_input("Note (optional)", key="shortlist_note", placeholder="why this fight?")
                         if st.button("➕ Add to video shortlist", key="shortlist_add"):
                             added = add_to_shortlist(shortlist_path, suffix, raw_a_sel, raw_b_sel, game_n_sel, pick_note)
                             st.success("Added." if added else "Already on the shortlist.")
-                    else:
-                        st.caption("Copy the line above and send it over, or run the app locally with VIDEO_SHORTLIST set to get an Add button.")
                 safe_text = html.escape(log_content, quote=False)
                 safe_text = re.sub(r'^[ ]{2,4}', '&nbsp;&nbsp;&nbsp;&nbsp;', safe_text, flags=re.MULTILINE)
                 safe_text = re.sub(r'(X\s+.*?\s+fainted!)', r'<span style="color: #ff6b6b; font-weight: bold; background: rgba(255, 107, 107, 0.15); padding: 1px 6px; border-radius: 4px;">\1</span>', safe_text)
