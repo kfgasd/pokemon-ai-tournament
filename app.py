@@ -1,6 +1,8 @@
 import streamlit as st
+import streamlit.components.v1 as components
 import pandas as pd
 import os
+import sys
 import zipfile
 import re
 import plotly.express as px
@@ -40,6 +42,13 @@ try:
     import replay_engine
 except Exception:
     replay_engine = None
+
+# The animated battle replay (replay_player/: log parser + HTML player + the decomp's battle sprites). Optional - without it the viewer just shows the text log.
+try:
+    sys.path.insert(0, os.path.join(os.path.dirname(os.path.abspath(__file__)), "replay_player"))
+    import build_replay_html as replay_html
+except Exception:
+    replay_html = None
 
 
 def safe_filename(name):
@@ -1093,6 +1102,89 @@ def build_trainer_card(row, game_title, valid_pt_folders, hgss_files, rank_idx=N
     )
     return card
 
+def _portrait_data_url(path):
+    """A trainer sprite as an inline PNG for the replay's intro / winner cards: background colour (top-left pixel) made transparent, tall
+    sheets cropped to a square, same treatment as get_sprite_html."""
+    img = Image.open(path).convert("RGBA")
+    data = np.array(img)
+    bg = data[0, 0]
+    if bg[3] == 255:
+        mask = (data[:, :, 0] == bg[0]) & (data[:, :, 1] == bg[1]) & (data[:, :, 2] == bg[2])
+        data[:, :, 3][mask] = 0
+        img = Image.fromarray(data)
+    w, h = img.size
+    if h > w:
+        img = img.crop((0, 0, w, w))
+    buf = io.BytesIO()
+    img.save(buf, format="PNG", optimize=True)
+    return "data:image/png;base64," + base64.b64encode(buf.getvalue()).decode()
+
+
+def trainer_portrait(row):
+    """Portrait for one standings row (a duo gets its two members side by side), the way the trainer cards find them; None if no sprite."""
+    try:
+        valid_pt = get_valid_trainer_folders(TRAINER_SPRITE_DIR)
+        hgss_f = get_hgss_sprites(HGSS_ASSETS_DIR)
+        t_key = str(row.get("Trainer_Key", "")).lower()
+        members = DUO_TRAINER_MEMBERS.get(t_key)
+        if members:
+            gt = "HGSS" if t_key.startswith("hgss_") else game_title
+            paths = [resolve_trainer_sprite_path(m, "", "", gt, valid_pt, hgss_f) for m in members]
+            imgs = [Image.open(io.BytesIO(base64.b64decode(_portrait_data_url(p).split(",", 1)[1]))).convert("RGBA") for p in paths if p and os.path.exists(p)][:2]
+            if not imgs:
+                return None
+            if len(imgs) == 1:
+                buf = io.BytesIO()
+                imgs[0].save(buf, format="PNG")
+                return "data:image/png;base64," + base64.b64encode(buf.getvalue()).decode()
+            out = Image.new("RGBA", (sum(i.size[0] for i in imgs), max(i.size[1] for i in imgs)), (0, 0, 0, 0))
+            x = 0
+            for im in imgs:
+                out.paste(im, (x, out.size[1] - im.size[1]), im)
+                x += im.size[0]
+            buf = io.BytesIO()
+            out.save(buf, format="PNG", optimize=True)
+            return "data:image/png;base64," + base64.b64encode(buf.getvalue()).decode()
+        t_class = str(row.get("Class", "")).lower().replace(" ", "_").replace("trainerclass_", "")
+        p = resolve_trainer_sprite_path(t_key, t_class, str(row.get("Display_Name", "")), game_title, valid_pt, hgss_f)
+        return _portrait_data_url(p) if p and os.path.exists(p) else None
+    except Exception:
+        return None
+
+
+@st.cache_data(max_entries=48, show_spinner=False)
+def replay_page_html(suffix, log_text, name_a, name_b, title):
+    """The replay player page for one battle log; name_a / name_b are the two Display_Names as they appear in standings (any order)."""
+    by_raw = {raw_trainer_name(str(r["Display_Name"])): r for _, r in df.iterrows()}
+    head = re.match(r"=== GAME \d+: (.+?) vs (.+?)( \(DOUBLE BATTLE\))? ===", log_text)
+    first, second = (head.group(1), head.group(2)) if head else (raw_trainer_name(name_a), raw_trainer_name(name_b))
+    ra, rb = by_raw.get(first), by_raw.get(second)
+    meta = {"title": title}
+    if ra is not None:
+        meta["a_elo"] = ra.get("Elo")
+    if rb is not None:
+        meta["b_elo"] = rb.get("Elo")
+    images = {"a": trainer_portrait(ra) if ra is not None else None, "b": trainer_portrait(rb) if rb is not None else None}
+    return replay_html.build_html(log_text, f"{suffix}.txt", extra_meta=meta, trainer_images=images)
+
+
+def add_to_shortlist(path, suffix, raw_a, raw_b, game_n, note):
+    """Appends one fight to the video shortlist (same shape as video_tools/highlights.json), unless it is already there."""
+    try:
+        with open(path, encoding="utf-8") as fh:
+            data = json.load(fh)
+    except (OSError, ValueError):
+        data = {"fights": []}
+    key = (suffix, sorted([raw_a, raw_b]), game_n)
+    if any((f["suffix"], sorted(f["pair"]), (f["games"] or [None])[0]) == key for f in data["fights"]):
+        return False
+    fid = re.sub(r"[^a-z0-9]+", "_", f"{suffix}_{raw_a}_vs_{raw_b}_g{game_n}".lower()).strip("_")
+    data["fights"].append({"id": fid, "suffix": suffix, "tag": "PICK", "headline": f"{raw_a} vs {raw_b}", "pair": [raw_a, raw_b], "games": [game_n], "note": note})
+    with open(path, "w", encoding="utf-8") as fh:
+        json.dump(data, fh, indent=1)
+    return True
+
+
 # ==========================================
 # TAB 1: BATTLE LOG VIEWER
 # ==========================================
@@ -1235,6 +1327,27 @@ with tab_logs:
                     st.markdown(f"<div style=\"height: 520px; overflow-y: auto; background-color: #1e1e1e; padding: 15px; border-radius: 5px; font-family: 'Courier New', monospace; white-space: pre-wrap; line-height: 1.5; color: #d4d4d4; border: 1px solid #333;\">{safe_text}</div>", unsafe_allow_html=True)
                 
                 st.caption(rebuilt_note or f"Loaded log: `{target_filename}`")
+
+                game_n_sel = int(game_num.split()[-1])
+                raw_a_sel, raw_b_sel = raw_trainer_name(t1_name), raw_trainer_name(t2_name)
+                if replay_html is not None:
+                    if st.toggle("▶ Watch this battle as an animated replay", key="watch_replay_toggle",
+                                 help="Plays the log as a Gen 4-style battle: sprites, HP bars, move types. Space = play/pause, arrow keys step, "
+                                      "the speed buttons go 0.5x-4x. Stays on while you browse other fights."):
+                        level_txt = {"normal": "Normal levels", "50": "Level 50", "100": "Level 100"}.get(_level, str(_level))
+                        page_title = f"{game_title} · {level_txt} · {'Items' if pool[0]['items'] else 'No items'}"
+                        components.html(replay_page_html(suffix, log_content, t1_name, t2_name, page_title), height=800, scrolling=False)
+                fight_id = f"{suffix} | {raw_a_sel} | {raw_b_sel} | game {game_n_sel}"
+                with st.expander("Fight ID - pick this fight for the video"):
+                    st.code(fight_id, language=None)
+                    shortlist_path = os.environ.get("VIDEO_SHORTLIST")
+                    if shortlist_path:
+                        pick_note = st.text_input("Note (optional)", key="shortlist_note", placeholder="why this fight?")
+                        if st.button("➕ Add to video shortlist", key="shortlist_add"):
+                            added = add_to_shortlist(shortlist_path, suffix, raw_a_sel, raw_b_sel, game_n_sel, pick_note)
+                            st.success("Added." if added else "Already on the shortlist.")
+                    else:
+                        st.caption("Copy the line above and send it over, or run the app locally with VIDEO_SHORTLIST set to get an Add button.")
             elif not replay_failed:             # (a failed rebuild already showed its own error above)
                 if game_num == "Game 3" and min_games_filter < 3:
                     st.info("No Game 3 log found. This match likely ended in a 2-0 sweep!")

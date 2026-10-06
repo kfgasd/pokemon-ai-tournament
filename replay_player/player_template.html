@@ -1,0 +1,763 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Battle Replay</title>
+<style>
+:root{
+  --bg:#12151b; --panel:#1b2029; --panel2:#232a35; --ink:#e9edf4; --mut:#94a0b3; --line:#2f3745;
+  --a:#4f8dff; --b:#ff5b61; --ok:#4cd964; --warn:#f5c542; --bad:#ff4d4d;
+}
+*{box-sizing:border-box}
+html,body{margin:0;background:var(--bg);color:var(--ink);font:13px/1.35 "Segoe UI",system-ui,-apple-system,Roboto,sans-serif}
+body.bare{background:#000;overflow:hidden}
+#app{display:flex;gap:12px;align-items:flex-start;padding:10px;max-width:1500px;margin:0 auto}
+body.bare #app{padding:0;max-width:none;gap:0}
+#main{flex:1 1 640px;min-width:0}
+#side{flex:0 0 340px;display:flex;flex-direction:column;gap:10px;min-width:0}
+body.bare #side, body.bare #controls{display:none}
+@media (max-width:900px){#app{flex-direction:column;align-items:stretch}#main,#side{flex:0 0 auto;width:100%}}
+
+/* ---------- stage ---------- */
+#stageWrap{position:relative;width:100%;background:#000;border-radius:8px;overflow:hidden;border:1px solid var(--line)}
+body.bare #stageWrap{border:0;border-radius:0}
+#stage{position:absolute;left:0;top:0;width:384px;height:216px;transform-origin:0 0;overflow:hidden;
+  font-family:"Segoe UI",Verdana,system-ui,sans-serif;image-rendering:pixelated;user-select:none}
+#bg{position:absolute;inset:0;background:
+  linear-gradient(#9fd2ee 0,#cfeaf7 38%,#e8f6e3 46%,#8fcf6e 47%,#6cb853 70%,#559f43 100%)}
+#bg .hill{position:absolute;left:-20px;top:70px;width:440px;height:60px;border-radius:50%;background:#7cc45f;opacity:.55}
+.platimg{position:absolute;image-rendering:pixelated}
+.plat{position:absolute;border-radius:50%;background:radial-gradient(ellipse at 50% 35%,#9be07b 0,#6fbe55 55%,#4f9f3d 100%);
+  box-shadow:0 3px 0 #3f8531,0 0 0 2px rgba(255,255,255,.18) inset}
+.shadow{position:absolute;width:56px;height:12px;margin:-6px 0 0 -28px;border-radius:50%;background:rgba(0,0,0,.28)}
+#weather{position:absolute;inset:0;pointer-events:none;opacity:0;transition:opacity .6s}
+#weather.rain{opacity:1;background:repeating-linear-gradient(105deg,rgba(255,255,255,0) 0 6px,rgba(190,220,255,.5) 6px 7px);
+  animation:rain .35s linear infinite;mix-blend-mode:screen}
+#weather.rain::after{content:"";position:absolute;inset:0;background:rgba(30,60,110,.28)}
+#weather.sun{opacity:1;background:radial-gradient(circle at 85% 0,rgba(255,230,120,.65),rgba(255,170,60,.22) 45%,rgba(255,140,0,.08) 100%)}
+#weather.sand{opacity:1;background:repeating-linear-gradient(80deg,rgba(214,180,110,0) 0 9px,rgba(214,180,110,.35) 9px 11px);
+  animation:sand .5s linear infinite}
+#weather.sand::after{content:"";position:absolute;inset:0;background:rgba(190,150,80,.32)}
+#weather.hail{opacity:1;background:radial-gradient(circle,rgba(255,255,255,.9) 0 1.2px,rgba(255,255,255,0) 1.6px) 0 0/14px 18px;
+  animation:hail .7s linear infinite}
+#weather.hail::after{content:"";position:absolute;inset:0;background:rgba(150,200,240,.22)}
+@keyframes rain{to{background-position:-14px 28px}}
+@keyframes sand{to{background-position:60px 8px}}
+@keyframes hail{to{background-position:-14px 18px}}
+.dim{position:absolute;inset:0;background:rgba(80,40,120,.0);transition:background .5s;pointer-events:none}
+.dim.tr{background:rgba(110,60,170,.22)}
+
+.mon{position:absolute;width:0;height:0}
+.anim{position:absolute;left:0;top:0;width:0;height:0}
+.spr{position:absolute;width:80px;height:80px;background-repeat:no-repeat;background-size:160px 80px;background-position:0 0;
+  image-rendering:pixelated;animation:idle 1.4s steps(1) infinite}
+.spr.ph{display:flex;align-items:center;justify-content:center;font:700 26px sans-serif;color:#fff;background:#4a5568;border-radius:12px;
+  background-image:none;animation:none}
+@keyframes idle{0%{background-position:0 0}50%{background-position:-80px 0}100%{background-position:0 0}}
+.anim.hit .spr{animation:idle 1.4s steps(1) infinite,blink .45s steps(1) 1}
+@keyframes blink{0%,100%{filter:none}15%,45%,75%{filter:brightness(3) saturate(0)}30%,60%,90%{filter:none}}
+.anim.lunge-a{animation:lunge-a .26s ease-out 1}
+.anim.lunge-b{animation:lunge-b .26s ease-out 1}
+@keyframes lunge-a{0%{transform:translate(0,0)}45%{transform:translate(26px,-14px)}100%{transform:translate(0,0)}}
+@keyframes lunge-b{0%{transform:translate(0,0)}45%{transform:translate(-26px,12px)}100%{transform:translate(0,0)}}
+.anim.dodge{animation:dodge .5s ease-in-out 1}
+@keyframes dodge{0%,100%{transform:translate(0,0)}35%{transform:translate(14px,0)}}
+.anim.pop{animation:pop .32s ease-out 1}
+@keyframes pop{0%{transform:scale(.05);opacity:0}70%{transform:scale(1.12);opacity:1}100%{transform:scale(1)}}
+.anim.faint{animation:faint .6s ease-in forwards}
+@keyframes faint{0%{transform:translateY(0);opacity:1}100%{transform:translateY(34px) scaleY(.15);opacity:0}}
+.anim.gone{opacity:0}
+.anim.vanish{opacity:.0;transition:opacity .25s}
+.anim.out{animation:out .25s ease-in forwards}
+@keyframes out{to{transform:scale(.05);opacity:0}}
+
+.box{position:absolute;width:152px;padding:2px 5px 3px;border-radius:5px;color:#fff;background:rgba(18,24,38,.88);
+  border:1.5px solid rgba(255,255,255,.55);box-shadow:0 1px 0 rgba(0,0,0,.35);transition:opacity .25s,filter .25s}
+.box.a{border-left:4px solid var(--a)}
+.box.b{border-left:4px solid var(--b)}
+.box.off{opacity:0;pointer-events:none}
+.box .r1{display:flex;align-items:baseline;gap:4px;font-weight:700;font-size:9.5px;line-height:11px;white-space:nowrap}
+.box .nm{overflow:hidden;text-overflow:ellipsis;max-width:92px}
+.box .lv{margin-left:auto;font-size:8px;color:#cfd8e6;font-weight:600}
+.box .r2{display:flex;align-items:center;gap:4px;margin-top:1px}
+.box .hpl{font-size:6.5px;font-weight:800;color:#ffcf4d;letter-spacing:.3px}
+.hpbar{flex:1;height:5px;border-radius:3px;background:#0b0f18;border:1px solid #6b7790;overflow:hidden}
+.hpbar i{display:block;height:100%;width:100%;background:var(--ok)}
+.hpbar i.mid{background:var(--warn)} .hpbar i.low{background:var(--bad)}
+.box .r3{display:flex;align-items:center;gap:3px;margin-top:1px;min-height:9px}
+.box .num{font-size:8px;font-weight:700;color:#e6edf7;font-variant-numeric:tabular-nums}
+.chip{font-size:6.5px;font-weight:800;padding:0 3px;border-radius:2px;line-height:9px;color:#111}
+.chip.par{background:#f7d02c}.chip.psn,.chip.tox{background:#b36bd9;color:#fff}.chip.brn{background:#f08030}
+.chip.slp{background:#9aa5b8}.chip.frz{background:#7fd8e8}.chip.cnf{background:#f78fb3}.chip.seed{background:#78c850}
+.chip.sub{background:#d8c08a}
+.balls{position:absolute;display:flex;gap:2px}
+.ball{width:7px;height:7px;border-radius:50%;background:linear-gradient(#e8483f 0 46%,#222 46% 54%,#f4f4f4 54%);border:1px solid #222}
+.ball.f{filter:grayscale(1) brightness(.55)}
+.ball.s{outline:1px solid #f5c542}
+#hud{position:absolute;left:0;top:0;right:0;height:13px;display:flex;align-items:center;justify-content:space-between;
+  padding:0 5px;background:linear-gradient(rgba(10,14,24,.75),rgba(10,14,24,.55));color:#fff;font-size:8px;font-weight:700;z-index:5}
+#hud .na{color:#8fb5ff}#hud .nb{color:#ff9a9e}#hud .tn{color:#fff;letter-spacing:.4px}
+#fieldA,#fieldB,#fieldC{position:absolute;display:flex;gap:2px;flex-wrap:wrap;z-index:4}
+#fieldA{left:4px;bottom:37px}
+#fieldB{right:4px;top:15px;justify-content:flex-end;max-width:150px}
+#fieldC{left:50%;top:15px;transform:translateX(-50%)}
+.fx{font-size:6.5px;font-weight:800;padding:0 3px;border-radius:2px;line-height:9px;background:rgba(255,255,255,.88);color:#223}
+.fx.reflect{background:#ffd27a}.fx.lightscreen{background:#ffe98a}.fx.tailwind{background:#a8e6ff}.fx.safeguard{background:#ffc3ea}
+.fx.mist{background:#d5f0ff}.fx.luckychant{background:#d6ffd0}.fx.tr{background:#c9a6ff}.fx.gravity{background:#d8d2c4}
+.fx.wx{background:#fff}
+#msg{position:absolute;left:0;right:0;bottom:0;height:34px;padding:4px 8px;background:linear-gradient(#26324a,#1b2538);
+  border-top:2px solid #9db2d8;color:#fff;font-size:10px;font-weight:600;line-height:13px;z-index:6;overflow:hidden}
+#msg .sub{display:block;color:#aab8d2;font-size:8px;font-weight:500}
+#msg .mt{position:absolute;right:8px;top:6px;display:flex;gap:3px;align-items:center}
+#msg .mt b{font-size:8px;font-weight:800;padding:1px 6px;border-radius:9px;color:#fff;letter-spacing:.4px;text-shadow:0 1px 0 rgba(0,0,0,.5)}
+#msg .mt i{font-style:normal;font-size:8px;font-weight:700;color:#cfd8e6;opacity:.85}
+#popups{position:absolute;inset:0;pointer-events:none;z-index:7}
+.pop{position:absolute;font-weight:900;font-size:13px;color:#fff;text-shadow:0 1px 0 #000,1px 0 0 #000,-1px 0 0 #000,0 -1px 0 #000;
+  animation:floatup 1.1s ease-out forwards;white-space:nowrap}
+.pop.dmg{color:#ffb0a8}.pop.heal{color:#9bffb0}.pop.up{color:#ffd76b;font-size:10px}.pop.down{color:#9fc4ff;font-size:10px}
+.pop.big{font-size:17px}
+@keyframes floatup{0%{transform:translate(-50%,6px);opacity:0}15%{opacity:1}100%{transform:translate(-50%,-26px);opacity:0}}
+
+#card{position:absolute;inset:0;z-index:9;display:flex;flex-direction:column;align-items:center;justify-content:center;gap:6px;
+  background:radial-gradient(ellipse at 50% 40%,rgba(36,52,86,.985),rgba(12,16,28,.995));color:#fff;opacity:0;pointer-events:none;
+  transition:opacity .45s}
+#card.show{opacity:1}
+#card .ttl{font-size:9px;letter-spacing:1.6px;text-transform:uppercase;color:#9db2d8;font-weight:700}
+#card .row2{display:flex;align-items:flex-end;justify-content:center;gap:26px;width:100%}
+#card .who{display:flex;flex-direction:column;align-items:center;gap:2px;width:132px;transition:opacity .4s,filter .4s}
+#card .who img{height:112px;width:auto;max-width:132px;image-rendering:pixelated;object-fit:contain;object-position:bottom}
+#card .who .nm{font-size:11px;font-weight:800;text-align:center;line-height:12px;max-width:132px}
+#card .who.a .nm{color:#8fb5ff}#card .who.b .nm{color:#ff9a9e}
+#card .who .sb{font-size:8px;color:#b9c4d8;font-weight:600;text-align:center;min-height:10px}
+#card .vs{font-size:20px;font-weight:900;letter-spacing:2px;color:#ffd76b;text-shadow:0 2px 0 #000;margin-bottom:46px}
+#card .res{font-size:11px;font-weight:700;color:#e9edf4;min-height:13px}
+#card.win .who.lose{opacity:.28;filter:grayscale(1)}
+#card.win .vs{color:#fff}
+#banner{position:absolute;left:0;right:0;top:78px;text-align:center;z-index:8;pointer-events:none;opacity:0}
+#banner b{display:inline-block;padding:6px 18px;border-radius:6px;background:rgba(10,14,24,.88);border:2px solid #fff;
+  font-size:16px;color:#fff;letter-spacing:.5px}
+#banner.show{animation:banner 2.4s ease-out forwards}
+@keyframes banner{0%{opacity:0;transform:scale(.8)}12%{opacity:1;transform:scale(1)}85%{opacity:1}100%{opacity:1}}
+#banner.turn{top:20px}
+#banner.turn b{font-size:9px;padding:2px 10px;border-width:1px}
+#banner.turn.show{animation:turnb 1.1s ease-out forwards}
+@keyframes turnb{0%{opacity:0}15%{opacity:.95}80%{opacity:.95}100%{opacity:0}}
+
+/* ---------- controls ---------- */
+#controls{margin-top:8px;display:flex;flex-direction:column;gap:6px}
+.row{display:flex;gap:6px;align-items:center;flex-wrap:wrap}
+button,select{background:var(--panel2);color:var(--ink);border:1px solid var(--line);border-radius:6px;padding:5px 10px;font:inherit;cursor:pointer}
+button:hover,select:hover{border-color:#52627c}
+button.on{background:#2c4a7c;border-color:#5a8bd6}
+button.big{min-width:44px;font-size:15px;padding:4px 12px}
+#scrub{flex:1;min-width:140px;accent-color:#5a8bd6}
+.mut{color:var(--mut)}
+.tag{font-size:11px;padding:1px 6px;border-radius:10px;background:var(--panel2);border:1px solid var(--line);color:var(--mut)}
+
+/* ---------- side panels ---------- */
+.card{background:var(--panel);border:1px solid var(--line);border-radius:8px;padding:8px 10px}
+.card h3{margin:0 0 6px;font-size:12px;letter-spacing:.3px;color:var(--mut);text-transform:uppercase;font-weight:700}
+.team h4{margin:0 0 4px;font-size:13px}
+.team.a h4{color:#8fb5ff}.team.b h4{color:#ff9a9e}
+.mrow{display:flex;gap:8px;align-items:center;padding:3px 0;border-top:1px solid rgba(255,255,255,.05)}
+.mrow:first-of-type{border-top:0}
+.mrow .ic{width:34px;height:34px;flex:0 0 34px;overflow:hidden;position:relative}
+.mrow .ic i{position:absolute;left:-23px;top:-23px;width:80px;height:80px;transform:scale(.8);transform-origin:50% 50%;
+  background-size:160px 80px;background-repeat:no-repeat;image-rendering:pixelated}
+.mrow .inf{flex:1;min-width:0}
+.mrow .t{display:flex;gap:6px;align-items:baseline;font-weight:600}
+.mrow .t small{color:var(--mut);font-weight:400}
+.mrow .mv{color:var(--mut);font-size:11px;white-space:nowrap;overflow:hidden;text-overflow:ellipsis}
+.mrow .hpb{height:4px;border-radius:2px;background:#0b0f18;margin-top:3px;overflow:hidden}
+.mrow .hpb i{display:block;height:100%;background:var(--ok)}
+.mrow .hpb i.mid{background:var(--warn)}.mrow .hpb i.low{background:var(--bad)}
+.mrow.f{opacity:.45;filter:grayscale(1)}
+.mrow.on{background:rgba(255,255,255,.05);border-radius:6px}
+#log{position:relative;max-height:300px;overflow:auto;font:11px/1.45 ui-monospace,Consolas,Menlo,monospace;white-space:pre-wrap;color:#b7c1d2;padding:4px 0}
+#log div{padding:0 6px;border-left:3px solid transparent;cursor:pointer}
+#log div:hover{background:rgba(255,255,255,.04)}
+#log div.cur{background:rgba(90,139,214,.22);border-left-color:#5a8bd6;color:#fff}
+#log div.t{color:#8fb5ff;font-weight:700;margin-top:4px}
+#log div.future{opacity:.38}
+.hint{font-size:11px;color:var(--mut)}
+</style>
+</head>
+<body>
+<div id="app">
+  <div id="main">
+    <div id="stageWrap">
+      <div id="stage">
+        <div id="bg"><div class="hill"></div></div>
+        <div id="platforms"></div>
+        <div id="weather"></div>
+        <div class="dim" id="dim"></div>
+        <div id="mons"></div>
+        <div id="boxes"></div>
+        <div id="fieldA"></div><div id="fieldB"></div><div id="fieldC"></div>
+        <div id="hud"><span class="na" id="hudA"></span><span class="tn" id="hudT"></span><span class="nb" id="hudB"></span></div>
+        <div id="popups"></div>
+        <div id="card"><div class="ttl" id="cardTitle"></div>
+          <div class="row2">
+            <div class="who a"><img id="cardImgA" alt=""><div class="nm" id="cardNmA"></div><div class="sb" id="cardSbA"></div></div>
+            <div class="vs" id="cardVs">VS</div>
+            <div class="who b"><img id="cardImgB" alt=""><div class="nm" id="cardNmB"></div><div class="sb" id="cardSbB"></div></div>
+          </div>
+          <div class="res" id="cardRes"></div></div>
+        <div id="banner"><b></b></div>
+        <div id="msg"></div>
+      </div>
+    </div>
+    <div id="controls">
+      <div class="row">
+        <button id="bStart" class="big" title="Restart (Home)">⏮</button>
+        <button id="bPrev" class="big" title="Previous event (←)">◀</button>
+        <button id="bPlay" class="big" title="Play / pause (Space)">▶</button>
+        <button id="bNext" class="big" title="Next event (→)">▶|</button>
+        <button id="bEnd" class="big" title="Skip to the end (End)">⏭</button>
+        <span class="mut" style="margin-left:8px">Speed</span>
+        <button class="spd" data-v="0.5">0.5×</button><button class="spd on" data-v="1">1×</button>
+        <button class="spd" data-v="2">2×</button><button class="spd" data-v="4">4×</button>
+        <span style="flex:1"></span>
+        <button id="bRec" title="Record the replay as a WebM video (Chrome / Edge: pick this tab when asked)">⏺ Record</button>
+        <select id="turnSel" title="Jump to turn"></select>
+      </div>
+      <div class="row"><input id="scrub" type="range" min="0" max="0" value="0"><span class="tag" id="pos"></span><span class="tag" id="recon" style="display:none" title="The replay is rebuilt from the text log. Everything the text does not say is checked against the exact hp in each turn header; this many spots could not be explained and were corrected at the next header."></span></div>
+    </div>
+  </div>
+  <aside id="side">
+    <div class="card team a" id="teamA"></div>
+    <div class="card team b" id="teamB"></div>
+    <div class="card"><h3>Battle log <span class="hint">(click a line to jump)</span></h3><div id="log"></div></div>
+  </aside>
+</div>
+
+<script id="replay-json" type="application/json">/*__REPLAY__*/</script>
+<script id="sprite-json" type="application/json">/*__SPRITES__*/</script>
+<script id="terrain-json" type="application/json">/*__TERRAIN__*/</script>
+<script>
+"use strict";
+(function(){
+const R = JSON.parse(document.getElementById('replay-json').textContent);
+const SPR = JSON.parse(document.getElementById('sprite-json').textContent);
+const TERR = JSON.parse(document.getElementById('terrain-json').textContent || '{}');
+const EV = R.events, META = R.meta, DOUBLE = !!META.double, NSLOT = DOUBLE ? 2 : 1;
+const Q = new URLSearchParams(location.search);
+if (Q.get('chrome') === '0') document.body.classList.add('bare');
+
+// ------------------------------------------------------------------ helpers
+const $ = (s, r) => (r || document).querySelector(s);
+const SPECIAL = {"MR MIME":"Mr. Mime","MIME JR":"Mime Jr.","PORYGON Z":"Porygon-Z","HO OH":"Ho-Oh","NIDORAN F":"Nidoran♀","NIDORAN M":"Nidoran♂","FARFETCHD":"Farfetch'd"};
+const disp = sp => SPECIAL[sp] || sp.toLowerCase().replace(/(^|[ \-])([a-z])/g, (m, a, b) => a + b.toUpperCase());
+const slug = sp => sp.toLowerCase().replace(/ /g, '_').replace(/[.']/g, '');
+const esc = s => String(s).replace(/[&<>]/g, c => ({'&':'&amp;','<':'&lt;','>':'&gt;'}[c]));
+const sleepRaw = ms => new Promise(r => setTimeout(r, ms));
+const clone = o => JSON.parse(JSON.stringify(o));
+const hpClass = p => p > 50 ? '' : p > 20 ? 'mid' : 'low';
+
+// ------------------------------------------------------------------ state
+function initState() {
+  const mk = side => R.teams[side].map((m, idx) => ({idx, sp:m.sp, lv:m.lv, ab:m.ab, item:m.item, moves:m.moves,
+    max:m.max, hp:m.max, st:null, f:false, vol:{}, disp:m.sp, hidden:false}));
+  const s = {party:{a:mk('a'), b:mk('b')}, act:{a:[null,null], b:[null,null]}, turn:0,
+    field:{weather:null, trickroom:false, gravity:false, a:{}, b:{}}, over:false, winner:null};
+  return s;
+}
+function slotOf(s, side, idx) { const k = s.act[side].indexOf(idx); return k < 0 ? null : k; }
+function reduce(prev, ev) {
+  const s = clone(prev);
+  const P = (side, idx) => (side && idx != null) ? s.party[side][idx] : null;
+  switch (ev.k) {
+    case 'turn': s.turn = ev.n; break;
+    case 'send': {
+      if (ev.from != null) { const o = P(ev.side, ev.from); if (o) { o.vol = {}; o.disp = o.sp; o.hidden = false; } }
+      s.act[ev.side][ev.slot] = ev.idx; const m = P(ev.side, ev.idx); if (m) m.hidden = false; break; }
+    case 'sync':
+      s.act = clone(ev.act);
+      for (const [side, idx, hp, mx] of ev.hp) { const m = P(side, idx); if (m) { m.hp = hp; m.max = mx; m.f = false; } }
+      break;
+    case 'move': { const m = P(ev.side, ev.idx); if (m) m.hidden = false; break; }
+    case 'hp': { const m = P(ev.side, ev.idx); if (m) { if (ev.max != null) m.max = ev.max; if (ev.hp != null) m.hp = ev.hp; } break; }
+    case 'status': { const m = P(ev.side, ev.idx); if (m) m.st = ev.st; break; }
+    case 'vol': { const m = P(ev.side, ev.idx); if (m) { if (ev.on) m.vol[ev.flag] = 1; else delete m.vol[ev.flag]; } break; }
+    case 'vanish': { const m = P(ev.side, ev.idx); if (m) m.hidden = !!ev.on; break; }
+    case 'transform': { const m = P(ev.side, ev.idx); if (m) m.disp = ev.to; break; }
+    case 'faint': {
+      const m = P(ev.side, ev.idx);
+      if (m) { m.f = true; m.hp = 0; m.st = null; m.vol = {}; m.disp = m.sp; m.hidden = false; }
+      const k = s.act[ev.side].indexOf(ev.idx); if (k >= 0) s.act[ev.side][k] = null; break; }
+    case 'field':
+      if (ev.what === 'weather') s.field.weather = ev.val;
+      else if (ev.what === 'trickroom' || ev.what === 'gravity') s[ev.what] = ev.val, s.field[ev.what] = ev.val;
+      else if (ev.side) { if (ev.val) s.field[ev.side][ev.what] = 1; else delete s.field[ev.side][ev.what]; }
+      break;
+    case 'end': s.over = true; s.winner = ev.winner; break;
+  }
+  return s;
+}
+const STATES = [initState()];
+for (let k = 0; k < EV.length; k++) STATES.push(reduce(STATES[k], EV[k]));
+
+
+// ------------------------------------------------------------------ terrain: backdrop colours + the decomp's own platform art
+const TBG = {
+  grass:['#9fd2ee','#d4ecf6','#8fcf6e','#559f43'], water:['#8cc6ee','#d2eaf8','#5da3e2','#2f6fb8'], cave:['#262030','#3a3042','#4e4458','#2b2633'],
+  indoors:['#b9bdc9','#dcdfe8','#aaadba','#868997'], rocky:['#a6cfe9','#d8e9f2','#b79c7a','#8a7456'], sand:['#9fd2ee','#e8f2f2','#e6d194','#c9b072'],
+  snow:['#b9d3ea','#e8f0f8','#f4f8fc','#d3e0ef'], ice:['#b6d5f0','#e6f1fb','#d2e8fb','#a7cbef'], mud:['#b4aa9a','#d4cabb','#8b6b59','#6a4e40'],
+  path:['#9fd2ee','#d4ecf6','#dccd9f','#b9a97a'], path_puddles:['#9fd2ee','#d4ecf6','#dccd9f','#b9a97a'], distortion_world:['#1a1030','#2c1a50','#3b2468','#1f1238'],
+  league_aaron:['#243a40','#35545c','#3f6b73','#223f46'], league_bertha:['#40391f','#5a5230','#6e6538','#403b20'], league_cynthia:['#2a2150','#3a2f6e','#4c3d86','#2a2152'],
+  league_flint:['#4a2428','#6a3438','#823f45','#4a2428'], league_lucian:['#2a2455','#3b3278','#4b3f92','#2a2456'],
+  battle_arcade:['#4a2a48','#6a3e66','#8a5486','#4a2a48'], battle_castle:['#24443c','#356a5c','#46846f','#24443c'], battle_factory:['#24424a','#35656f','#448290','#24424a'],
+  battle_hall:['#8aa6b0','#c4dde4','#7fa0aa','#5a7a85'], battle_tower:['#5a5226','#7d7236','#a09448','#5a5226'],
+};
+(function applyTerrain() {
+  const c = TBG[META.terrain] || TBG.grass;
+  $('#bg').style.background = `linear-gradient(${c[0]} 0,${c[1]} 40%,${c[2]} 41%,${c[3]} 100%)`;
+  $('#bg .hill').style.display = (META.terrain === 'grass' || !META.terrain) ? '' : 'none';
+})();
+
+// ------------------------------------------------------------------ stage layout
+const POS = DOUBLE
+  ? {a:[{x:62,y:178,s:1.04},{x:152,y:170,s:.98}], b:[{x:236,y:104,s:.92},{x:330,y:96,s:.86}]}
+  : {a:[{x:104,y:176,s:1.6}], b:[{x:282,y:100,s:1.05}]};
+const BOXPOS = DOUBLE
+  ? {a:[{x:228,y:100},{x:228,y:138}], b:[{x:4,y:16},{x:4,y:54}]}
+  : {a:[{x:226,y:126}], b:[{x:6,y:20}]};
+const stage = $('#stage'), wrap = $('#stageWrap');
+function fit() {
+  const w = wrap.clientWidth || 384, k = w / 384;
+  stage.style.transform = 'scale(' + k + ')';
+  wrap.style.height = (216 * k) + 'px';
+}
+new ResizeObserver(fit).observe(wrap); fit();
+
+const monEl = {a:[], b:[]}, boxEl = {a:[], b:[]}, platEl = {a:[], b:[]};
+if (TERR.p) {                                   // the player's side is one wide strip along the bottom of the scene
+  const xs = POS.a.map(p => p.x), cx = xs.reduce((u, v) => u + v, 0) / xs.length, top = Math.max(...POS.a.map(p => p.y)) - 9;
+  const im = document.createElement('img'); im.src = TERR.p; im.className = 'platimg';
+  im.style.cssText = `left:${cx - 128}px;top:${top}px;width:256px;height:32px`;
+  $('#platforms').appendChild(im);
+}
+for (const side of ['a', 'b']) for (let i = 0; i < NSLOT; i++) {
+  const p = POS[side][i];
+  if (TERR.e && side === 'b') {
+    const sc = DOUBLE ? .78 : 1.0, im = document.createElement('img'); im.src = TERR.e; im.className = 'platimg';
+    im.style.cssText = `left:${p.x - 64 * sc}px;top:${p.y - 35 * sc}px;width:${128 * sc}px;height:${64 * sc}px`;
+    $('#platforms').appendChild(im);
+  } else if (!TERR.e || (side === 'a' && !TERR.p)) {
+    const plat = document.createElement('div'); plat.className = 'plat';
+    const pw = side === 'a' ? 74 * p.s + 24 : 70 * p.s + 30;
+    plat.style.cssText = `left:${p.x - pw / 2}px;top:${p.y - 7}px;width:${pw}px;height:${side === 'a' ? 22 : 15}px`;
+    $('#platforms').appendChild(plat); platEl[side][i] = plat;
+  }
+  const m = document.createElement('div'); m.className = 'mon'; m.style.cssText = `left:${p.x}px;top:${p.y}px`;
+  m.innerHTML = '<div class="shadow"></div><div class="anim"><div class="spr"></div></div>';
+  $('#mons').appendChild(m); monEl[side][i] = m;
+  const b = document.createElement('div'); b.className = 'box ' + side + ' off';
+  b.style.cssText = `left:${BOXPOS[side][i].x}px;top:${BOXPOS[side][i].y}px`;
+  b.innerHTML = '<div class="r1"><span class="nm"></span><span class="lv"></span></div>' +
+    '<div class="r2"><span class="hpl">HP</span><div class="hpbar"><i></i></div></div>' +
+    '<div class="r3"><span class="num"></span><span class="chips"></span></div>';
+  $('#boxes').appendChild(b); boxEl[side][i] = b;
+}
+// party balls + trainer names
+const ballsEl = {};
+for (const side of ['a', 'b']) {
+  const e = document.createElement('div'); e.className = 'balls'; ballsEl[side] = e; $('#boxes').appendChild(e);
+  const bp = BOXPOS[side][NSLOT - 1];
+  e.style.left = (bp.x + 4) + 'px'; e.style.top = (bp.y + 37) + 'px';
+}
+$('#hudA').textContent = META.a + (META.a_elo != null ? '  (' + META.a_elo + ')' : ''); $('#hudB').textContent = (META.b_elo != null ? '(' + META.b_elo + ')  ' : '') + META.b;
+
+const spriteInfo = (sp, side) => {
+  const e = SPR[slug(sp)];
+  if (!e) return null;
+  return side === 'a' ? {url: e.b, gap: e.bg || 0} : {url: e.f, gap: e.fg || 0};
+};
+function setSprite(side, i, mon) {
+  const spr = $('.spr', monEl[side][i]);
+  const key = mon.disp + '|' + side;
+  if (spr.dataset.key === key) return;
+  spr.dataset.key = key;
+  const info = spriteInfo(mon.disp, side), s = POS[side][i].s;
+  spr.className = 'spr';
+  if (!info) {
+    spr.className = 'spr ph'; spr.textContent = disp(mon.disp).slice(0, 2); spr.style.backgroundImage = '';
+    spr.style.cssText += `;left:-40px;top:-80px;transform-origin:40px 80px;transform:scale(${s})`; return;
+  }
+  spr.textContent = '';
+  spr.style.backgroundImage = `url(${info.url})`;
+  spr.style.left = '-40px'; spr.style.top = (-(80 - info.gap)) + 'px';
+  spr.style.transformOrigin = '40px ' + (80 - info.gap) + 'px';
+  spr.style.transform = 'scale(' + s + ')';
+}
+
+
+// ------------------------------------------------------------------ title / winner card
+const eloTxt = side => META[side + '_elo'] != null ? 'Elo ' + META[side + '_elo'] : '';
+function paintCard(mode) {
+  const card = $('#card');
+  for (const side of ['a', 'b']) {
+    const img = $('#cardImg' + side.toUpperCase()), url = META[side + '_img'];
+    if (url) { img.src = url; img.style.display = ''; } else img.style.display = 'none';
+    $('#cardNm' + side.toUpperCase()).textContent = META[side];
+    $('#cardSb' + side.toUpperCase()).textContent = [eloTxt(side), META[side + '_tag']].filter(Boolean).join(' · ');
+  }
+  $('#cardTitle').textContent = META.title || ('Game ' + META.game + (META.double ? ' · Double battle' : ''));
+  if (mode === 'win') {
+    card.classList.add('win');
+    const w = META.winner;
+    $('.who.a', card).classList.toggle('lose', w === 'b'); $('.who.b', card).classList.toggle('lose', w === 'a');
+    $('#cardVs').textContent = w ? '🏆' : '=';
+    $('#cardRes').textContent = (w ? META[w] + ' wins' : 'Draw') + ' · ' + (META.result || ('Game ' + META.game + ', ' + META.turns + ' turn' + (META.turns === 1 ? '' : 's')));
+  } else {
+    card.classList.remove('win'); $('.who.a', card).classList.remove('lose'); $('.who.b', card).classList.remove('lose');
+    $('#cardVs').textContent = 'VS'; $('#cardRes').textContent = META.subtitle || '';
+  }
+}
+function showCard(mode, on) { if (on) paintCard(mode); $('#card').classList.toggle('show', !!on); }
+
+// ------------------------------------------------------------------ rendering a state (no animation)
+const CHIP = {par:'PAR', psn:'PSN', tox:'TOX', brn:'BRN', slp:'SLP', frz:'FRZ'};
+const VOLCHIP = {cnf:'CNF', seed:'SEED', sub:'SUB'};
+function paintBox(side, i, mon, hpShown) {
+  const b = boxEl[side][i];
+  $('.nm', b).textContent = disp(mon.disp); $('.lv', b).textContent = 'Lv' + R.teams[side][mon.idx].lv;
+  const mx = mon.max || 1, hp = hpShown == null ? mon.hp : hpShown, pct = Math.max(0, Math.min(100, hp / mx * 100));
+  const bar = $('.hpbar i', b); bar.style.width = pct + '%'; bar.className = hpClass(pct);
+  $('.num', b).textContent = mon.max == null ? '?' : Math.round(hp) + '/' + mon.max;
+  let chips = '';
+  if (mon.st) chips += `<span class="chip ${mon.st}">${CHIP[mon.st]}</span>`;
+  for (const v in mon.vol) if (VOLCHIP[v]) chips += `<span class="chip ${v}">${VOLCHIP[v]}</span>`;
+  $('.chips', b).innerHTML = chips;
+}
+let lastShownHp = {}, cardHold = false;
+function render(s) {
+  for (const side of ['a', 'b']) for (let i = 0; i < NSLOT; i++) {
+    const idx = s.act[side][i], me = monEl[side][i], b = boxEl[side][i], an = $('.anim', me);
+    an.className = 'anim';
+    if (idx == null) { me.style.display = 'none'; b.classList.add('off'); continue; }
+    const mon = s.party[side][idx];
+    me.style.display = ''; b.classList.remove('off');
+    setSprite(side, i, mon); paintBox(side, i, mon);
+    if (mon.hidden) an.classList.add('vanish');
+    me.dataset.idx = idx;
+  }
+  $('#weather').className = s.field.weather || '';
+  $('#dim').className = 'dim' + (s.field.trickroom ? ' tr' : '');
+  renderField(s); renderBalls(s); renderTeams(s);
+  $('#hudT').textContent = 'Game ' + META.game + ' · Turn ' + (s.turn || '—');
+  if (cur === 0 && !playing) showCard('intro', true); else if (cur >= EV.length && !playing && s.over) showCard('win', true); else if (!cardHold) showCard('intro', false);
+}
+const FXN = {reflect:'REFLECT', lightscreen:'L.SCREEN', tailwind:'TAILWIND', safeguard:'SAFEGUARD', mist:'MIST', luckychant:'LUCKY CHANT'};
+function renderField(s) {
+  for (const side of ['a', 'b']) {
+    let h = '';
+    for (const k in s.field[side]) h += `<span class="fx ${k}">${FXN[k] || k}</span>`;
+    $(side === 'a' ? '#fieldA' : '#fieldB').innerHTML = h;
+  }
+  let c = '';
+  const w = s.field.weather;
+  if (w) c += `<span class="fx wx">${{rain:'RAIN', sun:'SUN', sand:'SANDSTORM', hail:'HAIL'}[w]}</span>`;
+  if (s.field.trickroom) c += '<span class="fx tr">TRICK ROOM</span>';
+  if (s.field.gravity) c += '<span class="fx gravity">GRAVITY</span>';
+  $('#fieldC').innerHTML = c;
+}
+function renderBalls(s) {
+  for (const side of ['a', 'b']) {
+    ballsEl[side].innerHTML = s.party[side].map(m => `<span class="ball${m.f ? ' f' : ''}${m.st && !m.f ? ' s' : ''}"></span>`).join('');
+  }
+}
+function renderTeams(s) {
+  for (const side of ['a', 'b']) {
+    const el = $(side === 'a' ? '#teamA' : '#teamB');
+    let h = `<h4>${esc(META[side])}${META.winner === side ? ' 🏆' : ''}</h4>`;
+    s.party[side].forEach((m, idx) => {
+      const pct = m.max == null ? 100 : Math.max(0, Math.min(100, m.hp / (m.max || 1) * 100)), on = s.act[side].includes(idx);
+      const sp = SPR[slug(m.sp)];
+      const ic = sp ? `<i style="background-image:url(${sp.f})"></i>` : '';
+      const tip = esc('Ability: ' + (m.ab || '?') + (m.item ? ' · Item: ' + m.item : ''));
+      h += `<div class="mrow${m.f ? ' f' : ''}${on ? ' on' : ''}" title="${tip}"><div class="ic">${ic}</div><div class="inf">` +
+        `<div class="t">${esc(disp(m.sp))}<small>Lv${m.lv}</small>${m.st ? `<span class="chip ${m.st}">${CHIP[m.st]}</span>` : ''}` +
+        `<small style="margin-left:auto">${m.f ? 'fainted' : m.max == null ? '' : Math.round(m.hp) + '/' + m.max}</small></div>` +
+        `<div class="mv">${esc(m.moves.join(' · '))}</div><div class="hpb"><i class="${hpClass(pct)}" style="width:${pct}%"></i></div></div></div>`;
+    });
+    el.innerHTML = h;
+  }
+}
+
+// ------------------------------------------------------------------ log panel
+const logEl = $('#log');
+const turnStartLine = {};
+(function buildLog() {
+  const lines = R.log || [];
+  let h = '';
+  lines.forEach((ln, i) => {
+    if (!ln.trim()) return;
+    const cls = /^--- Turn/.test(ln) ? 't' : '';
+    h += `<div data-i="${i}" class="${cls}">${esc(ln)}</div>`;
+  });
+  logEl.innerHTML = h;
+  logEl.addEventListener('click', e => {
+    const d = e.target.closest('div[data-i]'); if (!d) return;
+    const line = +d.dataset.i;
+    let k = EV.findIndex(ev => ev.i >= line);
+    if (k < 0) k = EV.length;
+    seek(k);
+  });
+})();
+let lastCurLine = -1;
+function markLog(k) {
+  const ln = k > 0 ? EV[k - 1].i : -1;
+  if (ln === lastCurLine) return;
+  lastCurLine = ln;
+  for (const d of logEl.children) {
+    const i = +d.dataset.i;
+    d.classList.toggle('cur', i === ln);
+    d.classList.toggle('future', i > ln);
+  }
+  const cur = logEl.querySelector('.cur');
+  if (cur) { const top = cur.offsetTop - logEl.clientHeight * 0.6; logEl.scrollTop = Math.max(0, top); }
+}
+
+// ------------------------------------------------------------------ playback machinery
+let cur = 0, playing = false, speed = 1, token = 0, instant = false;
+const wait = ms => instant ? Promise.resolve(true) : new Promise(res => { const my = token; setTimeout(() => res(my === token), Math.max(0, ms / speed)); });
+const TYPE_COL = {normal:'#A8A77A',fire:'#EE8130',water:'#6390F0',electric:'#E0B81C',grass:'#7AC74C',ice:'#7CC8C4',fighting:'#C22E28',poison:'#A33EA1',
+  ground:'#C9A44A',flying:'#8F78E8',psychic:'#F95587',bug:'#A6B91A',rock:'#B6A136',ghost:'#735797',dragon:'#6F35FC',dark:'#705848',steel:'#8E8EAA',mystery:'#68A090'};
+function msg(text, sub, mv) {
+  const chip = mv && mv.type ? `<span class="mt"><b style="background:${TYPE_COL[mv.type] || '#777'}">${esc(mv.type.toUpperCase())}</b><i>${esc((mv.cls || '').toUpperCase())}</i></span>` : '';
+  $('#msg').innerHTML = esc(text || '') + (sub ? `<span class="sub">${esc(sub)}</span>` : '') + chip;
+}
+async function typeMsg(text) {
+  const my = token; const el = $('#msg');
+  if (!text) return true;
+  if (instant) { el.textContent = text; return true; }
+  const n = text.length, per = 14;
+  const t0 = performance.now();
+  return new Promise(res => {
+    function frame(now) {
+      if (my !== token) { el.textContent = text; return res(false); }
+      const k = Math.min(n, Math.floor((now - t0) * speed / per));
+      el.textContent = text.slice(0, k);
+      if (k >= n) return res(true);
+      requestAnimationFrame(frame);
+    }
+    requestAnimationFrame(frame);
+  });
+}
+function popup(side, i, text, cls) {
+  const p = POS[side][i];
+  const d = document.createElement('div'); d.className = 'pop ' + (cls || '');
+  d.textContent = text;
+  const jitter = (Math.random() - .5) * 18;
+  d.style.left = (p.x + jitter) + 'px'; d.style.top = (p.y - 62 * p.s - 6) + 'px';
+  $('#popups').appendChild(d); setTimeout(() => d.remove(), 1200);
+}
+function flash(side, i, cls, ms) {
+  const an = $('.anim', monEl[side][i]); an.classList.remove(cls); void an.offsetWidth; an.classList.add(cls);
+  setTimeout(() => an.classList.remove(cls), ms);
+}
+async function tweenHp(side, i, mon, from, to, ms) {
+  if (instant) { paintBox(side, i, mon, to); return true; }
+  const my = token, t0 = performance.now(), dur = Math.max(80, ms / speed);
+  return new Promise(res => {
+    function frame(now) {
+      const f = Math.min(1, (now - t0) / dur);
+      paintBox(side, i, mon, from + (to - from) * f);
+      if (f >= 1 || my !== token) return res(my === token);
+      requestAnimationFrame(frame);
+    }
+    requestAnimationFrame(frame);
+  });
+}
+const lines = ev => ev.text == null ? [] : Array.isArray(ev.text) ? ev.text.filter(Boolean) : [ev.text];
+
+async function animate(k) {
+  const ev = EV[k], before = STATES[k], after = STATES[k + 1];
+  const slotB = (side, idx) => { const sl = ev.slot != null && ev.side === side && ev.idx === idx ? ev.slot : slotOf(after, side, idx); return sl; };
+  switch (ev.k) {
+    case 'start': msg(ev.text); cardHold = true; showCard('intro', true); await wait(1900); cardHold = false; showCard('intro', false); break;
+    case 'turn':
+      render(after);
+      { const b = $('#banner'); b.className = 'turn'; $('b', b).textContent = 'Turn ' + ev.n; void b.offsetWidth; b.className = 'turn show'; }
+      await wait(260); break;
+    case 'sync': render(after); break;
+    case 'send': {
+      const i = ev.slot;
+      if (ev.from != null && before.act[ev.side][i] != null) {
+        const an = $('.anim', monEl[ev.side][i]); an.classList.add('out'); await wait(230);
+      }
+      render(after);
+      const an = $('.anim', monEl[ev.side][i]); an.classList.add('pop');
+      msg(ev.text); await wait(ev.why === 'lead' ? 520 : 620); break; }
+    case 'move': {
+      msg(ev.text, null, ev);
+      const i = ev.slot; if (i != null) flash(ev.side, i, ev.side === 'a' ? 'lunge-a' : 'lunge-b', 280);
+      render(after.act ? after : after);
+      await wait(520); break; }
+    case 'hp': {
+      const side = ev.side, idx = ev.idx, i = slotOf(after, side, idx) != null ? slotOf(after, side, idx) : ev.slot;
+      const mon = after.party[side][idx];
+      if (i != null && boxEl[side][i] && slotOf(after, side, idx) != null) {
+        const from = before.party[side][idx].hp, to = ev.hp == null ? from : ev.hp;
+        const d = to - from;
+        if (d < 0) { flash(side, i, 'hit', 480); popup(side, i, '-' + (ev.amt != null ? ev.amt : -d), 'dmg' + (ev.crit ? ' big' : '')); }
+        else if (d > 0) popup(side, i, '+' + d, 'heal');
+        if (ev.cause === 'unlogged' || ev.cause === 'hazard') { /* silent */ }
+        await tweenHp(side, i, mon, from, to, 520);
+      }
+      render(after);
+      for (const t of lines(ev)) { msg(t); await wait(520); }
+      if (!lines(ev).length) await wait(160);
+      break; }
+    case 'miss': {
+      const i = slotOf(after, ev.side, ev.idx);
+      if (i != null) flash(ev.side, i, 'dodge', 500);
+      msg(ev.text); await wait(560); break; }
+    case 'status': case 'vol': {
+      render(after);
+      const i = slotOf(after, ev.side, ev.idx);
+      if (ev.text) { msg(ev.text); await wait(520); } else await wait(60);
+      break; }
+    case 'stat': {
+      const i = slotOf(after, ev.side, ev.idx);
+      if (i != null) popup(ev.side, i, (ev.dir > 0 ? '▲ ' : '▼ ') + ev.stat, ev.dir > 0 ? 'up' : 'down');
+      if (ev.text) { msg(ev.text); await wait(480); } else await wait(80);
+      break; }
+    case 'faint': {
+      const i = ev.slot != null ? ev.slot : slotOf(before, ev.side, ev.idx);
+      if (i != null) { const an = $('.anim', monEl[ev.side][i]); an.classList.add('faint'); }
+      msg(ev.text); await wait(700); render(after); break; }
+    case 'vanish': case 'transform': case 'field': {
+      render(after);
+      if (ev.text) { msg(ev.text); await wait(560); } else await wait(60);
+      break; }
+    case 'msg': msg(ev.text); await wait(560); break;
+    case 'end': {
+      render(after);
+      msg(ev.text);
+      cardHold = true; await wait(700); showCard('win', true); await wait(2600); break; }
+    default: render(after);
+  }
+}
+
+async function stepForward(my) {
+  const k = cur;
+  try { await animate(k); } catch (e) { console.error(e); }
+  if (my !== runToken) { return false; }
+  cur = k + 1;
+  render(STATES[cur]); afterMove();
+  return true;
+}
+let runToken = 0;
+async function run() {
+  const my = ++runToken; token++; playing = true; cardHold = false; syncButtons();
+  // Replays start at an event boundary: show the exact state first.
+  render(STATES[cur]);
+  while (playing && cur < EV.length && my === runToken) {
+    const ok = await stepForward(my);
+    if (!ok) break;
+  }
+  if (my === runToken) { playing = false; syncButtons(); if (cur >= EV.length && window.replayAPI && replayAPI.onEnd) replayAPI.onEnd(); }
+}
+function pause() { playing = false; runToken++; token++; cardHold = false; syncButtons(); render(STATES[cur]); }
+function seek(k) {
+  const was = playing;
+  playing = false; runToken++; token++;
+  cur = Math.max(0, Math.min(EV.length, k)); cardHold = false;
+  render(STATES[cur]); msg(cur > 0 ? lastText(cur) : ''); afterMove(); syncButtons();
+  if (was) run();
+}
+function lastText(k) {
+  for (let j = k - 1; j >= 0; j--) { const t = lines(EV[j]); if (t.length) return t[t.length - 1]; }
+  return '';
+}
+async function stepOnce() {
+  if (playing) pause();
+  if (cur >= EV.length) return;
+  const my = ++runToken; token++;
+  await stepForward(my);
+  syncButtons();
+}
+function stepBack() { if (playing) pause(); seek(cur - 1); }
+function afterMove() {
+  $('#scrub').value = cur;
+  $('#pos').textContent = cur + ' / ' + EV.length;
+  markLog(cur);
+  const t = STATES[cur].turn; const sel = $('#turnSel'); if (sel.value != t) sel.value = t;
+}
+function syncButtons() {
+  $('#bPlay').textContent = playing ? '⏸' : '▶';
+}
+// turn selector
+(function () {
+  const sel = $('#turnSel'); const first = {};
+  EV.forEach((ev, k) => { if (ev.k === 'turn') first[ev.n] = k; });
+  sel.innerHTML = '<option value="0">Intro</option>' + Object.keys(first).map(n => `<option value="${n}">Turn ${n}</option>`).join('');
+  sel.addEventListener('change', () => { const n = +sel.value; seek(n === 0 ? 0 : Math.min(EV.length, first[n] + 2)); });
+  $('#scrub').max = EV.length;
+  $('#scrub').addEventListener('input', e => seek(+e.target.value));
+})();
+$('#bStart').onclick = () => seek(0);
+$('#bEnd').onclick = () => seek(EV.length);
+$('#bPrev').onclick = stepBack;
+$('#bNext').onclick = stepOnce;
+$('#bPlay').onclick = () => { if (playing) pause(); else { if (cur >= EV.length) cur = 0; run(); } };
+document.querySelectorAll('.spd').forEach(b => b.onclick = () => {
+  speed = +b.dataset.v; document.querySelectorAll('.spd').forEach(x => x.classList.toggle('on', x === b));
+});
+document.addEventListener('keydown', e => {
+  if (e.target.tagName === 'SELECT') return;
+  if (e.code === 'Space') { e.preventDefault(); $('#bPlay').click(); }
+  else if (e.code === 'ArrowRight') stepOnce();
+  else if (e.code === 'ArrowLeft') stepBack();
+  else if (e.code === 'Home') seek(0);
+  else if (e.code === 'End') seek(EV.length);
+});
+
+
+// ------------------------------------------------------------------ record the replay to a .webm (tab capture, Chrome / Edge)
+let recording = null;
+async function recordReplay() {
+  const btn = $('#bRec');
+  if (recording) { recording.stop(); return; }
+  if (!navigator.mediaDevices || !navigator.mediaDevices.getDisplayMedia || !window.MediaRecorder) {
+    alert('Recording needs a desktop Chrome or Edge (tab capture + MediaRecorder).'); return;
+  }
+  let stream;
+  try { stream = await navigator.mediaDevices.getDisplayMedia({video: {frameRate: 60}, audio: false, preferCurrentTab: true}); }
+  catch (e) { return; }                                       // the user cancelled the share dialog
+  const track = stream.getVideoTracks()[0];
+  try {                                                       // crop the capture to the stage itself where the browser can
+    if (window.CropTarget && track.cropTo) await track.cropTo(await CropTarget.fromElement($('#stageWrap')));
+  } catch (e) { console.warn('cropTo failed', e); }
+  const mime = ['video/webm;codecs=vp9', 'video/webm;codecs=vp8', 'video/webm'].find(m => MediaRecorder.isTypeSupported(m));
+  const chunks = [], rec = new MediaRecorder(stream, {mimeType: mime, videoBitsPerSecond: 12000000});
+  rec.ondataavailable = e => { if (e.data.size) chunks.push(e.data); };
+  rec.onstop = () => {
+    stream.getTracks().forEach(t => t.stop()); recording = null; btn.textContent = '⏺ Record'; btn.classList.remove('on');
+    const a = document.createElement('a'); a.href = URL.createObjectURL(new Blob(chunks, {type: 'video/webm'}));
+    a.download = (META.source || 'replay').replace(/\.txt$/, '') + '.webm'; document.body.appendChild(a); a.click(); a.remove();
+  };
+  rec.start(500); recording = rec; btn.textContent = '⏹ Stop'; btn.classList.add('on');
+  const prev = replayAPI.onEnd;
+  replayAPI.onEnd = () => { setTimeout(() => { if (recording === rec) rec.stop(); replayAPI.onEnd = prev; }, 1200); };
+  await new Promise(r => setTimeout(r, 400));                 // let the share banner settle before the first frame
+  seek(0); run();
+}
+$('#bRec').onclick = recordReplay;
+
+window.replayAPI = {
+  play: () => { if (cur >= EV.length) cur = 0; run(); }, pause, seek, events: EV.length,
+  speed: v => { speed = v; }, instant: v => { instant = !!v; }, state: () => STATES[cur], index: () => cur, replay: R, onEnd: null,
+};
+if (Q.get('speed')) speed = +Q.get('speed');
+document.title = META.a + ' vs ' + META.b + ' · Game ' + META.game;
+if (META.issues) { const r = $('#recon'); r.style.display = ''; r.textContent = '≈ ' + META.issues + ' hp correction' + (META.issues > 1 ? 's' : ''); }
+render(STATES[0]); afterMove(); syncButtons();
+if (Q.get('autoplay') === '1') setTimeout(run, 400);
+})();
+</script>
+</body>
+</html>
