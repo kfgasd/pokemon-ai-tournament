@@ -207,6 +207,84 @@ df['Display_Name'] = df['Display_Name'].str.replace(r'\(DD\)$', "(Dragon's Den)"
 trainer_dict = dict(zip(df['Display_Name'], df['Trainer_Key']))
 key_to_name = dict(zip(df['Trainer_Key'], df['Display_Name']))    # the reverse - Trainer_Key is guaranteed unique per row, Display_Name isn't
 
+# --- LEVEL COMPARISON: the same tournament played at normal levels and at Level 50 ---------------------------------------------------------
+# Every trainer is in both datasets (same Trainer_Key), so the page can always say how a trainer's rank changes when every Pokémon is set to the
+# level cap. Ranks here are Elo ranks (what the Leaderboard shows), not standings.csv's own win-based "Rank" column.
+LEVEL_NAMES = {"normal": "Normal levels", "50": "Level 50", "100": "Level 100"}
+
+
+def other_level_suffix():
+    cur = next((r for r in datasets if r["suffix"] == suffix), None)
+    if not cur:
+        return None, None
+    same = [r for r in datasets if r["level"] != cur["level"] and all(r[k] == cur[k] for k in ("game", "format", "generic", "items", "extra"))]
+    for lv in {"normal": ["50", "100"], "50": ["normal", "100"], "100": ["normal", "50"]}[cur["level"]]:
+        for r in same:
+            if r["level"] == lv:
+                return r["suffix"], lv
+    return None, None
+
+
+@st.cache_data
+def elo_rank_table(suffix_):
+    d = pd.read_csv(dp(f"standings{suffix_}.csv"), usecols=["Trainer_Key", "Elo", "Tier", "Match_Wins"])
+    d = d.sort_values(["Elo", "Match_Wins"], ascending=False).reset_index(drop=True)
+    d["EloRank"] = np.arange(1, len(d) + 1)
+    return d.set_index("Trainer_Key")
+
+
+OTHER_SUFFIX, OTHER_LEVEL = other_level_suffix()
+OTHER_LEVEL_NAME = LEVEL_NAMES.get(OTHER_LEVEL, "")
+LEVEL_CMP = {}
+if OTHER_SUFFIX and os.path.exists(dp(f"standings{OTHER_SUFFIX}.csv")):
+    _cur_t, _oth_t = elo_rank_table(suffix), elo_rank_table(OTHER_SUFFIX)
+    _j = _cur_t[["EloRank", "Elo", "Tier"]].join(_oth_t[["EloRank", "Elo", "Tier"]], rsuffix="_o", how="inner")
+    LEVEL_CMP = {k: {"rank": int(r.EloRank), "rank_o": int(r.EloRank_o), "elo": float(r.Elo), "elo_o": float(r.Elo_o), "tier_o": r.Tier_o,
+                     "shift": int(r.EloRank) - int(r.EloRank_o)} for k, r in _j.iterrows()}      # shift > 0: ranks better at the other level
+
+
+# --- IN-GAME AI FLAGS (trainer_ai_flags.json, from the engine's own rosters) ---------------------------------------------------------------
+AI_LABELS = {"BASIC": "Basic", "EVALUATE_ATTACK": "Evaluate Attack", "EXPERT": "Expert", "PRIORITIZE_EXTREMES": "Prioritize Extremes",
+             "SETUP_FIRST_TURN": "Setup First Turn", "RISKY": "Risky", "WEATHER": "Weather", "BATON_PASS": "Baton Pass"}
+AI_HELP = ("The AI scripts a trainer runs in the real game: Basic avoids bad moves, Evaluate Attack picks by damage, Expert adds the full "
+           "situational logic (switching, setup, status, items), Prioritize Extremes favours KOs and OHKO-level moves, Risky takes gambles, "
+           "Setup First Turn opens with a setup move, Weather and Baton Pass are HGSS extras.")
+
+
+@st.cache_data
+def load_ai_flags():
+    path = dp("trainer_ai_flags.json")
+    if not os.path.exists(path):
+        return {}
+    try:
+        with open(path, "r", encoding="utf-8") as f:
+            return json.load(f)
+    except Exception:
+        return {}
+
+
+def ai_flags_for(trainer_key):
+    """The normalized AI flag names of one trainer of the current dataset (Combined prefixes HGSS keys with "hgss_")."""
+    data = load_ai_flags()
+    k = str(trainer_key)
+    if game == "platinum":
+        return data.get("platinum", {}).get(k, [])
+    if game == "hgss":
+        return data.get("hgss", {}).get(k, [])
+    if k.startswith("hgss_"):
+        h = data.get("hgss", {})
+        return h.get(k[5:]) or h.get(k[5:].replace("_and_hgss_", "_and_"), [])
+    return data.get("platinum", {}).get(k, [])
+
+
+AI_FLAGS_OF = {k: ai_flags_for(k) for k in df['Trainer_Key']}
+
+
+def ai_chips(flags):
+    return "".join(f"<span style='background: #1f2d4d; border: 1px solid #3d5a99; color: #cfe0ff; font-size: 10px; font-weight: bold; border-radius: 4px; "
+                   f"padding: 1px 5px; margin-right: 3px; white-space: nowrap; display: inline-block; margin-top: 2px;'>{AI_LABELS.get(f, f.title())}</span>" for f in flags)
+
+
 # --- SPECIES -> TRAINERS INDEX (drives the Tier List tab's "click a species, see who uses it" flow) ---
 if "selected_trainer_key" not in st.session_state:
     st.session_state.selected_trainer_key = None
@@ -497,6 +575,8 @@ search_mon = st.sidebar.text_input("Filter by Pokémon", placeholder="e.g. Garch
 search_move = st.sidebar.text_input("Filter by Move", placeholder="e.g. Earthquake").strip()
 search_item = st.sidebar.text_input("Filter by Item", placeholder="e.g. Lum Berry").strip()
 search_ability = st.sidebar.text_input("Filter by Ability", placeholder="e.g. Intimidate").strip()
+_ai_options = [f for f in AI_LABELS if any(f in v for v in AI_FLAGS_OF.values())]
+search_ai = st.sidebar.multiselect("Filter by trainer AI", _ai_options, format_func=lambda f: AI_LABELS[f], help=AI_HELP + " A trainer must have every flag you pick.") if _ai_options else []
 
 st.sidebar.markdown("**Apply filters to:**")
 apply_to = st.sidebar.radio("Apply filters to:", ["Trainer 1", "Trainer 2", "Both Trainers"], label_visibility="collapsed")
@@ -514,6 +594,7 @@ def apply_filters(df_to_filter):
     if search_move: f_df = f_df[f_df['Team_and_Movesets'].str.contains(search_move, case=False, na=False)]
     if search_item: f_df = f_df[f_df['Team_and_Movesets'].str.contains(search_item, case=False, na=False)]
     if search_ability: f_df = f_df[f_df['Team_and_Movesets'].str.contains(search_ability, case=False, na=False)]
+    if search_ai: f_df = f_df[f_df['Trainer_Key'].map(lambda k: all(fl in AI_FLAGS_OF.get(k, []) for fl in search_ai))]
     return f_df
 
 t1_df = apply_filters(df) if apply_to in ["Trainer 1", "Both Trainers"] else df.copy()
@@ -1080,6 +1161,16 @@ def build_trainer_card(row, game_title, valid_pt_folders, hgss_files, rank_idx=N
         elo_fmt = "N/A"
     
     rank_html = f"<div style='font-size: 12px; color: #888; font-weight: bold; text-transform: uppercase;'>Rank #{rank_idx}</div>" if rank_idx else ""
+    ai_html = f"<div style='margin-top: 4px;'>{ai_chips(AI_FLAGS_OF.get(str(row.get('Trainer_Key', '')), []))}</div>"
+    lv = LEVEL_CMP.get(str(row.get('Trainer_Key', '')))
+    if lv:
+        shift = lv['shift']
+        arrow, col = ("▲", "#7AC74C") if shift > 0 else (("▼", "#ff6b6b") if shift < 0 else ("=", "#aaa"))
+        level_html = (f"<div style='font-size: 12px; color: #aaa; margin-top: 5px;'>{LEVEL_NAMES[_level]} <b style='color: #ddd;'>#{lv['rank']}</b> &rarr; "
+                      f"{OTHER_LEVEL_NAME} <b style='color: #ddd;'>#{lv['rank_o']}</b> <b style='color: {col};'>{arrow} {abs(shift)}</b> "
+                      f"<span style='color: #888;'>(Elo {lv['elo_o']:.0f}, {lv['tier_o']})</span></div>")
+    else:
+        level_html = ""
 
     card = (
         f"<div style='background: #1e1e1e; border: 1px solid #444; border-radius: 8px; padding: 15px; width: 450px; color: #eee; box-shadow: 2px 2px 8px rgba(0,0,0,0.3); margin-bottom: 20px;'>"
@@ -1088,6 +1179,7 @@ def build_trainer_card(row, game_title, valid_pt_folders, hgss_files, rank_idx=N
         f"{rank_html}"
         f"<h3 style='margin: 5px 0; color: #ff7f50; font-size: 18px;'>{str(row.get('Display_Name', 'Unknown'))}</h3>"
         f"<div style='font-size: 14px; margin-top: 5px;'><span style='background: #333; padding: 2px 6px; border-radius: 4px; color: #fff; font-weight: bold;'>{tier}</span> &nbsp;Elo: {elo_fmt}</div>"
+        f"{level_html}{ai_html}"
         f"<div style='font-size: 13px; color: #aaa; margin-top: 5px;'><strong>Match W/L:</strong> {record} ({ratio}) &nbsp;|&nbsp; <strong>Game W/L:</strong> {game_wl}</div>"
         f"<div style='font-size: 11px; color: #888; margin-top: 6px; background: #222; padding: 6px; border-radius: 4px;'>"
         f"<div style='color: #7AC74C; margin-bottom: 2px;'>Best Win: <span style='color: #ccc;'>{notable_win}</span></div>"
@@ -2238,8 +2330,47 @@ with tab_curve:
 # ==========================================
 # TAB 6: LEADERBOARD & VISUALIZED CARDS
 # ==========================================
+def render_level_summary():
+    """Shown at the top of the Leaderboard by default: how much the level cap reshuffles the ranking."""
+    if not LEVEL_CMP:
+        return
+    j = pd.DataFrame.from_dict(LEVEL_CMP, orient="index")
+    j["name"] = j.index.map(lambda k: key_to_name.get(k, k))
+    cur_n, oth_n = LEVEL_NAMES[_level], OTHER_LEVEL_NAME
+    st.subheader(f"Does the level cap matter? {cur_n} vs {oth_n}")
+    st.caption(f"Same trainers, same teams: {oth_n.lower()} sets every Pokémon to the cap instead of its story level, so the ranking shows team and AI quality "
+               f"rather than how late in the game a trainer appears. Ranks are Elo ranks.")
+    top10 = len(set(j.nsmallest(10, "rank").index) & set(j.nsmallest(10, "rank_o").index))
+    c1, c2, c3, c4 = st.columns(4)
+    c1.metric("Rank correlation", f"{j['rank'].corr(j['rank_o']):.2f}", help="1.00 = identical order at both levels")
+    c2.metric("Top-10 in common", f"{top10} of 10")
+    c3.metric("Average rank change", f"{j['shift'].abs().mean():.0f} places")
+    c4.metric("Moved more than 100 places", f"{(j['shift'].abs() > 100).sum()} trainers")
+    col_up, col_down = st.columns(2)
+    short = {"Normal levels": "Normal", "Level 50": "Lv 50", "Level 100": "Lv 100"}
+    cols = {"name": "Trainer", "rank": f"# {short.get(cur_n, cur_n)}", "rank_o": f"# {short.get(oth_n, oth_n)}"}
+    with col_up:
+        st.markdown(f"**Biggest climbers at {oth_n}**")
+        up = j.sort_values("shift", ascending=False).head(10)[list(cols)].rename(columns=cols)
+        up["Places"] = ("+" + (up[cols["rank"]] - up[cols["rank_o"]]).astype(str)).values
+        st.dataframe(up.reset_index(drop=True), use_container_width=True, hide_index=True)
+    with col_down:
+        st.markdown(f"**Biggest fallers at {oth_n}**")
+        dn = j.sort_values("shift").head(10)[list(cols)].rename(columns=cols)
+        dn["Places"] = ("-" + (dn[cols["rank_o"]] - dn[cols["rank"]]).astype(str)).values
+        st.dataframe(dn.reset_index(drop=True), use_container_width=True, hide_index=True)
+    fig = px.scatter(j, x="rank", y="rank_o", hover_name="name", opacity=0.6, labels={"rank": f"Rank at {cur_n}", "rank_o": f"Rank at {oth_n}"},
+                     color="shift", color_continuous_scale="RdYlGn", range_color=[-250, 250])
+    fig.add_shape(type="line", x0=0, y0=0, x1=len(j), y1=len(j), line=dict(color="#888", dash="dot"))
+    fig.update_traces(marker=dict(size=4))
+    fig.update_layout(height=430, coloraxis_colorbar=dict(title="Places"), margin=dict(l=10, r=10, t=10, b=10))
+    st.plotly_chart(fig, use_container_width=True)
+    st.markdown("---")
+
+
 with tab_leaderboard:
     st.header("Tournament Standings")
+    render_level_summary()
     
     col_view, col_tier, col_search = st.columns([1, 1, 1])
     with col_view:
@@ -2269,7 +2400,12 @@ with tab_leaderboard:
         # same number as its leftmost column, and Streamlit renders that index automatically, so keeping it as a
         # second, identical data column just duplicated it. The Visualized Cards branch below still reads
         # row['True_Rank'] directly (a plain .iterrows() row has no easy access to its own index label there).
-        desired_cols = ['Display_Name', 'Match_Wins', 'Match_Losses', 'Game_Wins', 'Game_Losses', 'Elo', 'Tier', 'Class', 'Greatest_Win', 'Worst_Loss', 'Team_and_Movesets']
+        if LEVEL_CMP:
+            leaderboard_df[f"Rank ({OTHER_LEVEL_NAME})"] = leaderboard_df['Trainer_Key'].map(lambda k: LEVEL_CMP.get(k, {}).get('rank_o'))
+            leaderboard_df["Rank shift"] = leaderboard_df['Trainer_Key'].map(lambda k: LEVEL_CMP.get(k, {}).get('shift'))
+        leaderboard_df["AI flags"] = leaderboard_df['Trainer_Key'].map(lambda k: ", ".join(AI_LABELS.get(f, f) for f in AI_FLAGS_OF.get(k, [])))
+        desired_cols = ['Display_Name', 'Match_Wins', 'Match_Losses', 'Game_Wins', 'Game_Losses', 'Elo', 'Tier'] + \
+                       ([f"Rank ({OTHER_LEVEL_NAME})", "Rank shift"] if LEVEL_CMP else []) + ['AI flags', 'Class', 'Greatest_Win', 'Worst_Loss', 'Team_and_Movesets']
         available_cols = [col for col in desired_cols if col in leaderboard_df.columns]
         st.dataframe(
             leaderboard_df[available_cols],
