@@ -15,6 +15,7 @@ from PIL import Image
 import io
 import difflib
 import json
+import hashlib
 from collections import Counter
 
 # Read-only, best-effort import of the tournament engine itself - ONLY for its exact stat-calculation/ability/nature
@@ -109,6 +110,37 @@ DATA_DIR = "tournament_data"
 def dp(*parts):
     """Joins DATA_DIR onto a tournament-data filename/dirname - see DATA_DIR's own comment."""
     return os.path.join(DATA_DIR, *parts)
+
+
+def _deploy_signature():
+    """Changes whenever this file or any file in DATA_DIR is added, removed or rewritten (a redeploy)."""
+    h = hashlib.md5()
+    try:
+        h.update(str(os.path.getmtime(os.path.abspath(__file__))).encode())
+    except OSError:
+        pass
+    try:
+        for e in sorted(os.scandir(DATA_DIR), key=lambda x: x.name):
+            if e.is_file():
+                s = e.stat()
+                h.update(f"{e.name}:{s.st_size}:{int(s.st_mtime)};".encode())
+    except OSError:
+        pass
+    return h.hexdigest()
+
+
+@st.cache_resource
+def _deploy_state():
+    return {"sig": None}
+
+
+# A server that keeps running across redeploys would otherwise go on serving the dataset list / DataFrames cached from the OLD data (a dataset removed from
+# the repo stayed selectable and crashed on its missing files), so the data caches are dropped once whenever the deployed code or data changed.
+_deploy = _deploy_state()
+_sig_now = _deploy_signature()
+if _deploy["sig"] != _sig_now:
+    st.cache_data.clear()
+    _deploy["sig"] = _sig_now
 
 
 @st.cache_data
@@ -236,11 +268,14 @@ def elo_rank_table(suffix_):
 OTHER_SUFFIX, OTHER_LEVEL = other_level_suffix()
 OTHER_LEVEL_NAME = LEVEL_NAMES.get(OTHER_LEVEL, "")
 LEVEL_CMP = {}
-if OTHER_SUFFIX and os.path.exists(dp(f"standings{OTHER_SUFFIX}.csv")):
-    _cur_t, _oth_t = elo_rank_table(suffix), elo_rank_table(OTHER_SUFFIX)
-    _j = _cur_t[["EloRank", "Elo", "Tier"]].join(_oth_t[["EloRank", "Elo", "Tier"]], rsuffix="_o", how="inner")
-    LEVEL_CMP = {k: {"rank": int(r.EloRank), "rank_o": int(r.EloRank_o), "elo": float(r.Elo), "elo_o": float(r.Elo_o), "tier_o": r.Tier_o,
-                     "shift": int(r.EloRank) - int(r.EloRank_o)} for k, r in _j.iterrows()}      # shift > 0: ranks better at the other level
+if OTHER_SUFFIX and os.path.exists(dp(f"standings{OTHER_SUFFIX}.csv")) and os.path.exists(dp(f"standings{suffix}.csv")):
+    try:
+        _cur_t, _oth_t = elo_rank_table(suffix), elo_rank_table(OTHER_SUFFIX)
+        _j = _cur_t[["EloRank", "Elo", "Tier"]].join(_oth_t[["EloRank", "Elo", "Tier"]], rsuffix="_o", how="inner")
+        LEVEL_CMP = {k: {"rank": int(r.EloRank), "rank_o": int(r.EloRank_o), "elo": float(r.Elo), "elo_o": float(r.Elo_o), "tier_o": r.Tier_o,
+                         "shift": int(r.EloRank) - int(r.EloRank_o)} for k, r in _j.iterrows()}      # shift > 0: ranks better at the other level
+    except Exception:                  # the comparison is an extra: a dataset without a usable counterpart just shows no comparison
+        LEVEL_CMP = {}
 
 
 # --- IN-GAME AI FLAGS (trainer_ai_flags.json, from the engine's own rosters) ---------------------------------------------------------------
