@@ -1,0 +1,18 @@
+{
+  "engine_file": "pokemon_ai_tournament.py",
+  "engine_sha256": "06e3fabc8875762c32f42fb3ebb6d5604f2ae30428ac6e5035ff886c3a0a5d89",
+  "moves_db_sha256": "6dbe9d8fd13f83e19c1d23fb9e7b71205c1b6bbbebb0a97ec630c7642799c0b1",
+  "hgss_trainers_sha256": "54e7cbed73961136b2922c1a57a243972900a5a944f63685aa273913fd11358e",
+  "platinum_trainers_fingerprint": "32adfdc39853bde9ea75daad316b7790c8c521a76f0149bfb10fa6eb1f2e3148",
+  "species_fingerprint": "3583d3bf8b684424b932055f2cfd160279ce9945824c0d05107a16f175ec252e",
+  "items_fingerprint": "0d16bf8017cc4b93cd9fb80a07894b0463d3d8e503f9cc834481aa00d20df309",
+  "version_id": "b4bb9cae2f8f",
+  "settings": {
+    "set_level": null,
+    "moveset_level_source": "original",
+    "battle_mode": "normal",
+    "trainer_items_enabled": false,
+    "trainer_personality_enabled": true,
+    "max_battle_turns": 350
+  }
+}
